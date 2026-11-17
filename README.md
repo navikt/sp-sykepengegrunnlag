@@ -12,6 +12,7 @@ Bygg og kjør testene:
 
 - `sp-sykepengegrunnlag`: selve appen.
 - `migreringer`: Flyway-migreringer for databasen.
+- `opprydding-dev`: sletter persondata i dev når det kommer `slett_person` på rapiden, og svarer med `person_slettet`. Databasen har ingen tabeller med persondata ennå.
 
 ## Henvendelser
 

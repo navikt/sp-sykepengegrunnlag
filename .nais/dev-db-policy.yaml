@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sp-sykepengegrunnlag-db-policy
+  namespace: tbd
+spec:
+  egress:
+    - to:
+        - ipBlock:
+            # Public IP-en til Cloud SQL-instansen sp-sykepengegrunnlag. Instansen opprettes ved første deploy av appen.
+            # Slås opp med: kubectl get sqlinstance sp-sykepengegrunnlag -n tbd -o jsonpath='{.status.publicIpAddress}'
+            cidr: TODO/32
+  podSelector:
+    matchLabels:
+      dbPolicyUser: sp-sykepengegrunnlag-opprydding-dev
+  policyTypes:
+    - Egress

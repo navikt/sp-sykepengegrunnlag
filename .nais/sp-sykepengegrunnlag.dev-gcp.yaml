@@ -8,6 +8,8 @@ spec:
         databases:
           - name: sp-sykepengegrunnlag
             envVarPrefix: DATABASE
+            users:
+              - name: sp-sykepengegrunnlag-opprydding-dev
         flags:
           - name: cloudsql.enable_pgaudit
             value: "off"

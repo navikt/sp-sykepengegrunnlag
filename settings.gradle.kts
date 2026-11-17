@@ -2,6 +2,7 @@ rootProject.name = "sp-sykepengegrunnlag"
 include(
     "migreringer",
     "sp-sykepengegrunnlag",
+    "opprydding-dev",
 )
 
 // Sett opp repositories basert på om vi kjører i CI eller ikke
