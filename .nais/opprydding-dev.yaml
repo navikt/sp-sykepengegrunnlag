@@ -51,7 +51,7 @@ spec:
     enabled: true
     path: /metrics
   envFrom:
-    - secret: google-sql-sp-sykepengegrunnlag-sp-sykepengegrunnlag-266bd975
+    - secret: google-sql-sp-sykepengegrunnlag-sp-sykepengegrunnlag-s-f4230ce3
   env:
     - name: KAFKA_RAPID_TOPIC
       value: tbd.rapid.v1
