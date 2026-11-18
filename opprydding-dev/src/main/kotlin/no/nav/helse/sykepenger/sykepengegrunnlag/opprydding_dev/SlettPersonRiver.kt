@@ -44,7 +44,15 @@ internal class SlettPersonRiver(
         tx: TransactionalSession,
         fødselsnummer: String,
     ) {
-        listOf(SLETT_SUBSUMSJONER, SLETT_ARBEIDSGIVERINNTEKTER, SLETT_SYKEPENGEGRUNNLAG, SLETT_INNTEKTSMELDINGER).forEach { sql ->
+        listOf(
+            SLETT_SUBSUMSJONER,
+            SLETT_ARBEIDSGIVERINNTEKTER,
+            SLETT_SELVSTENDIGINNTEKTER,
+            SLETT_SYKEPENGEGRUNNLAG,
+            SLETT_INNTEKTSMELDINGER,
+            SLETT_PENSJONSGIVENDE_INNTEKTER,
+            SLETT_SØKNADER,
+        ).forEach { sql ->
             tx.run(queryOf(sql, mapOf("fodselsnummer" to fødselsnummer)).asUpdate)
         }
     }
@@ -68,9 +76,20 @@ internal class SlettPersonRiver(
             "DELETE FROM arbeidsgiverinntekt WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
 
         @Language("PostgreSQL")
+        const val SLETT_SELVSTENDIGINNTEKTER =
+            "DELETE FROM selvstendiginntekt WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
+
+        @Language("PostgreSQL")
         const val SLETT_SYKEPENGEGRUNNLAG = "DELETE FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer"
 
         @Language("PostgreSQL")
         const val SLETT_INNTEKTSMELDINGER = "DELETE FROM inntektsmelding WHERE fødselsnummer = :fodselsnummer"
+
+        @Language("PostgreSQL")
+        const val SLETT_PENSJONSGIVENDE_INNTEKTER =
+            "DELETE FROM pensjonsgivende_inntekt WHERE søknad_intern_dokument_id IN (SELECT intern_dokument_id FROM soknad WHERE fødselsnummer = :fodselsnummer)"
+
+        @Language("PostgreSQL")
+        const val SLETT_SØKNADER = "DELETE FROM soknad WHERE fødselsnummer = :fodselsnummer"
     }
 }

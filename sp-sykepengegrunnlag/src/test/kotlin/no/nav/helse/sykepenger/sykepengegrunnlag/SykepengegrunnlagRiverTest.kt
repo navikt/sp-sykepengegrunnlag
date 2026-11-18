@@ -286,10 +286,135 @@ internal class SykepengegrunnlagRiverTest {
         assertTrue(oppslag[0].second < oppslag[1].second)
     }
 
+    @Test
+    fun `fastsetter grunnlaget for selvstendig næringsdrivende fra den pensjonsgivende inntekten i søknaden`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER, hovedkategori = "SELVSTENDIG_NAERINGSDRIVENDE")
+        val søknadId = UUID.randomUUID()
+        val inntektsÅr =
+            listOf(
+                FakeSpedisjon.InntektsÅr(2016, næringsinntekt = 400000, lønnsinntekt = 60000, lønnsinntektBarePensjonsdel = 40000),
+                FakeSpedisjon.InntektsÅr(2015, næringsinntekt = 440000, næringsinntektFraFiskeFangstEllerFamiliebarnehage = 10000),
+                FakeSpedisjon.InntektsÅr(2014, næringsinntekt = 380000, erFerdigLignet = false),
+            )
+        val søknad = spedisjon.lagSelvstendigSøknad(FØDSELSNUMMER, inntektsÅr, søknadId = søknadId)
+
+        rapid.sendTestMessage(
+            lagSykepengegrunnlagBehov(rettighetskategoriId, emptyList(), skjæringstidspunkt = LocalDate.of(2018, 6, 16), søknadMeldingsreferanseId = søknad),
+            FØDSELSNUMMER,
+        )
+
+        val id =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(0)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
+        val grunnlag = TestDatabase.grunnlag().single()
+        assertEquals(id, grunnlag.id)
+        assertEquals(LocalDate.of(2018, 6, 16), grunnlag.skjæringstidspunkt)
+        assertBeløp("96883", grunnlag.grunnbeløp)
+        assertBeløp("478906", grunnlag.beregningsgrunnlag)
+        assertBeløp("478906", grunnlag.sykepengegrunnlag)
+        assertEquals(emptyList<TestDatabase.Arbeidsgiverrad>(), TestDatabase.arbeidsgivere())
+
+        val selvstendig = TestDatabase.selvstendiginntekter().single()
+        assertEquals(id, selvstendig.sykepengegrunnlagId)
+        assertEquals(søknad, selvstendig.søknadInternDokumentId)
+        assertBeløp("478906", selvstendig.fastsattÅrsinntekt)
+
+        assertEquals(listOf(TestDatabase.Søknadsrad(søknad, søknadId)), TestDatabase.søknader())
+        assertEquals(
+            listOf(
+                TestDatabase.PensjonsgivendeInntektsrad(søknad, 2014, false, 0, 0, 380000, 0),
+                TestDatabase.PensjonsgivendeInntektsrad(søknad, 2015, true, 0, 0, 440000, 10000),
+                TestDatabase.PensjonsgivendeInntektsrad(søknad, 2016, true, 60000, 40000, 400000, 0),
+            ),
+            TestDatabase.pensjonsgivendeInntekter(),
+        )
+
+        val subsumsjon = TestDatabase.subsumsjoner().single { it.paragraf == "8-35" }
+        assertEquals(id, subsumsjon.sykepengegrunnlagId)
+        assertEquals(2, subsumsjon.ledd)
+        assertEquals("VILKAR_BEREGNET", subsumsjon.utfall)
+        assertJsonEquals(
+            """
+            {
+              "pensjonsgivendeInntekter": [
+                {"pensjonsgivendeInntekt": 500000, "årstall": 2016, "gjennomsnittligG": 91740},
+                {"pensjonsgivendeInntekt": 450000, "årstall": 2015, "gjennomsnittligG": 89502},
+                {"pensjonsgivendeInntekt": 380000, "årstall": 2014, "gjennomsnittligG": 87328}
+              ],
+              "nåværendeGrunnbeløp": 96883.0,
+              "skjæringstidspunkt": "2018-06-16"
+            }
+            """,
+            subsumsjon.input,
+        )
+        assertJsonEquals("""{"sykepengegrunnlag": 478906}""", subsumsjon.output)
+        assertJsonEquals("""{"erBegrenset": false}""", TestDatabase.subsumsjoner().single { it.paragraf == "8-10" }.output)
+    }
+
+    @ParameterizedTest(name = "pensjonsgivende inntekter {0}, {1} og {2} gir fastsatt årsinntekt {3}, beregningsgrunnlag {4} og sykepengegrunnlag {5}")
+    @CsvSource(
+        "500000, 450000, 380000, 478906, 478906, 478906",
+        "670000, 590000, 490000, 629943, 589138, 581298",
+        "1500000, 0, 0, 528030, 258354, 258354",
+    )
+    fun `fastsetter grunnlaget for selvstendig næringsdrivende etter § 8-35 som Spleis`(
+        inntekt2016: Int,
+        inntekt2015: Int,
+        inntekt2014: Int,
+        fastsattÅrsinntekt: String,
+        beregningsgrunnlag: String,
+        sykepengegrunnlag: String,
+    ) {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER, hovedkategori = "SELVSTENDIG_NAERINGSDRIVENDE")
+        val inntektsÅr =
+            listOf(
+                FakeSpedisjon.InntektsÅr(2016, næringsinntekt = inntekt2016),
+                FakeSpedisjon.InntektsÅr(2015, næringsinntekt = inntekt2015),
+                FakeSpedisjon.InntektsÅr(2014, næringsinntekt = inntekt2014),
+            )
+        val søknad = spedisjon.lagSelvstendigSøknad(FØDSELSNUMMER, inntektsÅr)
+
+        rapid.sendTestMessage(
+            lagSykepengegrunnlagBehov(rettighetskategoriId, emptyList(), skjæringstidspunkt = LocalDate.of(2018, 5, 12), søknadMeldingsreferanseId = søknad),
+            FØDSELSNUMMER,
+        )
+
+        val grunnlag = TestDatabase.grunnlag().single()
+        assertBeløp(beregningsgrunnlag, grunnlag.beregningsgrunnlag)
+        assertBeløp(sykepengegrunnlag, grunnlag.sykepengegrunnlag)
+        assertBeløp(fastsattÅrsinntekt, TestDatabase.selvstendiginntekter().single().fastsattÅrsinntekt)
+        assertJsonEquals("""{"sykepengegrunnlag": $sykepengegrunnlag}""", TestDatabase.subsumsjoner().single { it.paragraf == "8-35" }.output)
+    }
+
+    @Test
+    fun `svarer ikke når Spedisjon mangler søknaden`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER, hovedkategori = "SELVSTENDIG_NAERINGSDRIVENDE")
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, emptyList(), søknadMeldingsreferanseId = UUID.randomUUID()), FØDSELSNUMMER)
+
+        assertSvarteIkke()
+    }
+
+    @Test
+    fun `svarer ikke på søknad fra selvstendig næringsdrivende når hovedkategorien er arbeidstaker`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val søknad = spedisjon.lagSelvstendigSøknad(FØDSELSNUMMER, listOf(FakeSpedisjon.InntektsÅr(2025, næringsinntekt = 500000)))
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, emptyList(), søknadMeldingsreferanseId = søknad), FØDSELSNUMMER)
+
+        assertSvarteIkke()
+    }
+
     private fun assertSvarteIkke() {
         assertEquals(0, rapid.inspektør.size)
         assertEquals(emptyList<TestDatabase.Grunnlagsrad>(), TestDatabase.grunnlag())
         assertEquals(emptyList<TestDatabase.Inntektsmeldingrad>(), TestDatabase.inntektsmeldinger())
+        assertEquals(emptyList<TestDatabase.Søknadsrad>(), TestDatabase.søknader())
     }
 
     private fun assertBeløp(
@@ -305,6 +430,7 @@ internal class SykepengegrunnlagRiverTest {
         arbeidsgivere: List<String>,
         skjæringstidspunkt: LocalDate = SKJÆRINGSTIDSPUNKT,
         fødselsnummer: String = FØDSELSNUMMER,
+        søknadMeldingsreferanseId: UUID? = null,
     ) = """
         {
           "@event_name": "behov",
@@ -315,7 +441,7 @@ internal class SykepengegrunnlagRiverTest {
           "Sykepengegrunnlag": {
             "skjæringstidspunkt": "$skjæringstidspunkt",
             "rettighetskategoriId": "$rettighetskategoriId",
-            "arbeidsgivere": [${arbeidsgivere.joinToString()}]
+            "arbeidsgivere": [${arbeidsgivere.joinToString()}]${søknadMeldingsreferanseId?.let { ""","selvstendig": {"søknadMeldingsreferanseId": "$it"}""" } ?: ""}
           }
         }
         """

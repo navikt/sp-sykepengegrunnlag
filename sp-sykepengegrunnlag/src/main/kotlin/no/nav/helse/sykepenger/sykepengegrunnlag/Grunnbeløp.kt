@@ -9,6 +9,7 @@ import java.time.Month.JULY
 import java.time.Month.MAY
 import java.time.Month.OCTOBER
 import java.time.Month.SEPTEMBER
+import kotlin.math.roundToInt
 
 /**
  * Kopiert fra `Grunnbeløp` i Spleis. Et nytt grunnbeløp må legges inn begge steder så lenge begge beregner sykepengegrunnlaget.
@@ -103,11 +104,30 @@ internal object Grunnbeløp {
             ?: throw NoSuchElementException("Finner ingen grunnbeløp etter $dato")
     }
 
+    /** Gjennomsnittlig grunnbeløp i året, vektet med antall måneder hvert grunnbeløp gjaldt. Regnes med `Double` som i Spleis. */
+    fun snitt(år: Int): Int =
+        grunnbeløp
+            .sumOf { it.beløp.toDouble() * it.antallMånederGyldigI(år) / 12 }
+            .roundToInt()
+
     private class Historisk(
         beløp: Int,
         val gyldigFra: LocalDate,
         val virkningsdato: LocalDate = gyldigFra,
     ) {
         val beløp: BigDecimal = beløp.toBigDecimal()
+
+        fun antallMånederGyldigI(år: Int): Int {
+            val gyldigTil =
+                grunnbeløp
+                    .filter { it.gyldigFra > gyldigFra }
+                    .minOfOrNull { it.gyldigFra }
+                    ?.minusDays(1)
+                    ?: gyldigFra.withMonth(12).withDayOfMonth(31)
+            val fom = maxOf(gyldigFra, LocalDate.of(år, JANUARY, 1))
+            val tom = minOf(gyldigTil, LocalDate.of(år, DECEMBER, 31))
+            if (fom > tom) return 0
+            return tom.monthValue - fom.monthValue + 1
+        }
     }
 }

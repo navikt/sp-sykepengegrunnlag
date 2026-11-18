@@ -17,6 +17,10 @@ internal class PgSykepengegrunnlagRepository(
         inntektsmeldinger.forEach { lagreInntektsmelding(grunnlag.fødselsnummer, it) }
         lagreGrunnlag(grunnlag)
         grunnlag.arbeidsgivere.forEach { lagreArbeidsgiver(grunnlag, it) }
+        grunnlag.selvstendig?.let {
+            lagreSøknad(grunnlag.fødselsnummer, it.søknad)
+            lagreSelvstendig(grunnlag, it)
+        }
         grunnlag.subsumsjoner.forEach { lagreSubsumsjon(grunnlag, it) }
     }
 
@@ -41,6 +45,78 @@ internal class PgSykepengegrunnlagRepository(
                     "orgnummer" to inntektsmelding.orgnummer.verdi,
                     "beregnetInntekt" to inntektsmelding.beregnetInntektMånedlig.tilDesimal(),
                     "mottattDato" to inntektsmelding.mottattDato,
+                ),
+            ).asUpdate,
+        )
+    }
+
+    private fun lagreSøknad(
+        fødselsnummer: Identitetsnummer,
+        søknad: Søknad,
+    ) {
+        @Language("PostgreSQL")
+        val søknadSql =
+            """
+            INSERT INTO soknad (intern_dokument_id, søknad_id, fødselsnummer)
+            VALUES (:internDokumentId, :soknadId, :fodselsnummer)
+            ON CONFLICT (intern_dokument_id) DO NOTHING
+            """
+        tx.run(
+            queryOf(
+                søknadSql,
+                mapOf(
+                    "internDokumentId" to søknad.internDokumentId.uuid,
+                    "soknadId" to søknad.søknadId.uuid,
+                    "fodselsnummer" to fødselsnummer.verdi,
+                ),
+            ).asUpdate,
+        )
+
+        @Language("PostgreSQL")
+        val inntektSql =
+            """
+            INSERT INTO pensjonsgivende_inntekt (søknad_intern_dokument_id, år, er_ferdig_lignet, lønnsinntekt, lønnsinntekt_bare_pensjonsdel,
+                                                 næringsinntekt, næringsinntekt_fra_fiske_fangst_eller_familiebarnehage)
+            VALUES (:soknadInternDokumentId, :ar, :erFerdigLignet, :lonnsinntekt, :lonnsinntektBarePensjonsdel, :naringsinntekt,
+                    :naringsinntektFraFiskeFangstEllerFamiliebarnehage)
+            ON CONFLICT (søknad_intern_dokument_id, år) DO NOTHING
+            """
+        søknad.pensjonsgivendeInntekter.forEach { inntekt ->
+            tx.run(
+                queryOf(
+                    inntektSql,
+                    mapOf(
+                        "soknadInternDokumentId" to søknad.internDokumentId.uuid,
+                        "ar" to inntekt.år,
+                        "erFerdigLignet" to inntekt.erFerdigLignet,
+                        "lonnsinntekt" to inntekt.lønnsinntekt,
+                        "lonnsinntektBarePensjonsdel" to inntekt.lønnsinntektBarePensjonsdel,
+                        "naringsinntekt" to inntekt.næringsinntekt,
+                        "naringsinntektFraFiskeFangstEllerFamiliebarnehage" to inntekt.næringsinntektFraFiskeFangstEllerFamiliebarnehage,
+                    ),
+                ).asUpdate,
+            )
+        }
+    }
+
+    private fun lagreSelvstendig(
+        grunnlag: Sykepengegrunnlag,
+        selvstendig: Selvstendiginntekt,
+    ) {
+        @Language("PostgreSQL")
+        val sql =
+            """
+            INSERT INTO selvstendiginntekt (sykepengegrunnlag_id, søknad_intern_dokument_id, søknad_hentet, fastsatt_årsinntekt)
+            VALUES (:sykepengegrunnlagId, :soknadInternDokumentId, :soknadHentet, :fastsattArsinntekt)
+            """
+        tx.run(
+            queryOf(
+                sql,
+                mapOf(
+                    "sykepengegrunnlagId" to grunnlag.id.uuid,
+                    "soknadInternDokumentId" to selvstendig.søknad.internDokumentId.uuid,
+                    "soknadHentet" to selvstendig.søknad.hentet,
+                    "fastsattArsinntekt" to selvstendig.fastsattÅrsinntekt.tilDesimal(),
                 ),
             ).asUpdate,
         )

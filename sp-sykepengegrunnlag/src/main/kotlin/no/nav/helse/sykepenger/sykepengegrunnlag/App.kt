@@ -70,5 +70,5 @@ internal fun RapidsConnection.registrerRivers(
     spedisjonClient: SpedisjonClient,
     rettighetskategoriClient: RettighetskategoriClient,
 ) {
-    SykepengegrunnlagRiver(this, Inntektsmeldinger(spedisjonClient), rettighetskategoriClient, dataSource)
+    SykepengegrunnlagRiver(this, Inntektsmeldinger(spedisjonClient), Søknader(spedisjonClient), rettighetskategoriClient, dataSource)
 }

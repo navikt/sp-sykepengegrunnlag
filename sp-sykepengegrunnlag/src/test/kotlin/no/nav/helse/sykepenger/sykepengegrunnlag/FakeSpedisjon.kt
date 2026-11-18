@@ -56,6 +56,61 @@ internal class FakeSpedisjon {
         return internDokumentId
     }
 
+    data class InntektsÅr(
+        val år: Int,
+        val næringsinntekt: Int = 0,
+        val lønnsinntekt: Int = 0,
+        val lønnsinntektBarePensjonsdel: Int = 0,
+        val næringsinntektFraFiskeFangstEllerFamiliebarnehage: Int = 0,
+        val erFerdigLignet: Boolean = true,
+    )
+
+    fun lagSelvstendigSøknad(
+        fødselsnummer: String,
+        inntektsÅr: List<InntektsÅr>,
+        søknadId: UUID = UUID.randomUUID(),
+    ): UUID {
+        val internDokumentId = UUID.randomUUID()
+        val søknad =
+            mapOf(
+                "id" to søknadId.toString(),
+                "fnr" to fødselsnummer,
+                "arbeidssituasjon" to "SELVSTENDIG_NARINGSDRIVENDE",
+                "selvstendigNaringsdrivende" to
+                    mapOf(
+                        "inntekt" to
+                            mapOf(
+                                "norskPersonidentifikator" to fødselsnummer,
+                                "inntektsAar" to
+                                    inntektsÅr.map {
+                                        mapOf(
+                                            "aar" to it.år.toString(),
+                                            "erFerdigLignet" to it.erFerdigLignet,
+                                            "pensjonsgivendeInntekt" to
+                                                mapOf(
+                                                    "pensjonsgivendeInntektAvLoennsinntekt" to it.lønnsinntekt,
+                                                    "pensjonsgivendeInntektAvLoennsinntektBarePensjonsdel" to it.lønnsinntektBarePensjonsdel,
+                                                    "pensjonsgivendeInntektAvNaeringsinntekt" to it.næringsinntekt,
+                                                    "pensjonsgivendeInntektAvNaeringsinntektFraFiskeFangstEllerFamiliebarnehage" to
+                                                        it.næringsinntektFraFiskeFangstEllerFamiliebarnehage,
+                                                ),
+                                        )
+                                    },
+                            ),
+                    ),
+            )
+        meldinger[internDokumentId] =
+            mapOf(
+                "type" to "sendt_søknad_selvstendig",
+                "fnr" to fødselsnummer,
+                "internDokumentId" to internDokumentId.toString(),
+                "eksternDokumentId" to søknadId.toString(),
+                "duplikatkontroll" to UUID.randomUUID().toString(),
+                "jsonBody" to objectMapper.writeValueAsString(søknad),
+            )
+        return internDokumentId
+    }
+
     private fun hentMeldinger(request: HttpRequest): HttpResponse<String> {
         check(request.method() == "GET" && request.uri().path == "/api/meldinger") { "Uventet kall til Spedisjon: ${request.method()} ${request.uri()}" }
         if (feiler) return MockHttpResponse("""{"detail":"Spedisjon er nede"}""", 503)

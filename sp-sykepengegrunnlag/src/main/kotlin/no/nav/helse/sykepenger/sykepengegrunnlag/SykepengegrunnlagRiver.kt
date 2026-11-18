@@ -21,6 +21,7 @@ import javax.sql.DataSource
 internal class SykepengegrunnlagRiver(
     rapidsConnection: RapidsConnection,
     private val inntektsmeldinger: Inntektsmeldinger,
+    private val søknader: Søknader,
     private val rettighetskategoriClient: RettighetskategoriClient,
     private val dataSource: DataSource,
 ) : River.PacketListener {
@@ -40,7 +41,7 @@ internal class SykepengegrunnlagRiver(
                         requireKey("orgnummer", "inntektskilde")
                         interestedIn("inntektsmeldingMeldingsreferanseId")
                     }
-                    it.interestedIn("$BEHOV.selvstendig")
+                    it.interestedIn("$BEHOV.selvstendig.søknadMeldingsreferanseId") { node -> UUID.fromString(node.asString()) }
                 }
             }.register(this)
     }
@@ -55,10 +56,14 @@ internal class SykepengegrunnlagRiver(
         val skjæringstidspunkt = packet["$BEHOV.skjæringstidspunkt"].asLocalDate()
         val rettighetskategoriId = RettighetskategoriId(UUID.fromString(packet["$BEHOV.rettighetskategoriId"].asString()))
         val arbeidsgivere = packet["$BEHOV.arbeidsgivere"].toList()
+        val søknadInternDokumentId =
+            packet["$BEHOV.selvstendig.søknadMeldingsreferanseId"]
+                .takeUnless { it.isMissingNode || it.isNull }
+                ?.let { InternDokumentId(UUID.fromString(it.asString())) }
 
         medMdc(MdcKey.IDENTITETSNUMMER to fødselsnummer.verdi) {
             loggInfo("Mottatt behov for $BEHOV", "skjæringstidspunkt" to skjæringstidspunkt.toString())
-            if (!støttes(arbeidsgivere, packet["$BEHOV.selvstendig"])) {
+            if (!støttes(arbeidsgivere, søknadInternDokumentId)) {
                 loggError(
                     "Behov for $BEHOV med inntektskilder som ikke støttes ennå, svarer ikke",
                     "skjæringstidspunkt" to skjæringstidspunkt.toString(),
@@ -67,8 +72,13 @@ internal class SykepengegrunnlagRiver(
                 return@medMdc
             }
             try {
-                val inntektsmeldingIder = arbeidsgivere.map { InternDokumentId(UUID.fromString(it.path("inntektsmeldingMeldingsreferanseId").asString())) }
-                val grunnlag = fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, inntektsmeldingIder)
+                val grunnlag =
+                    if (søknadInternDokumentId != null) {
+                        fastsettForSelvstendig(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, søknadInternDokumentId)
+                    } else {
+                        val inntektsmeldingIder = arbeidsgivere.map { InternDokumentId(UUID.fromString(it.path("inntektsmeldingMeldingsreferanseId").asString())) }
+                        fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, inntektsmeldingIder)
+                    }
                 packet["@løsning"] = mapOf(BEHOV to mapOf("id" to grunnlag.id.uuid.toString()))
                 loggInfo(
                     "Publiserer løsning på $BEHOV",
@@ -89,10 +99,12 @@ internal class SykepengegrunnlagRiver(
 
     private fun støttes(
         arbeidsgivere: List<JsonNode>,
-        selvstendig: JsonNode,
-    ) = arbeidsgivere.isNotEmpty() &&
-        arbeidsgivere.all { it.path("inntektskilde").asString() == Inntektskilde.INNTEKTSMELDING.name } &&
-        (selvstendig.isMissingNode || selvstendig.isNull)
+        søknadInternDokumentId: InternDokumentId?,
+    ) = if (søknadInternDokumentId != null) {
+        arbeidsgivere.isEmpty()
+    } else {
+        arbeidsgivere.isNotEmpty() && arbeidsgivere.all { it.path("inntektskilde").asString() == Inntektskilde.INNTEKTSMELDING.name }
+    }
 
     private fun fastsett(
         fødselsnummer: Identitetsnummer,
@@ -105,11 +117,30 @@ internal class SykepengegrunnlagRiver(
         val inntektsmeldinger = inntektsmeldinger.hent(inntektsmeldingIder)
         return Sykepengegrunnlag
             .fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, inntektsmeldinger, nå = Instant.now())
-            .also { grunnlag ->
-                sessionOf(dataSource).use { session ->
-                    session.transaction { tx -> PgSykepengegrunnlagRepository(tx).lagre(grunnlag, inntektsmeldinger) }
-                }
-            }
+            .also { lagre(it, inntektsmeldinger) }
+    }
+
+    private fun fastsettForSelvstendig(
+        fødselsnummer: Identitetsnummer,
+        skjæringstidspunkt: LocalDate,
+        rettighetskategoriId: RettighetskategoriId,
+        søknadInternDokumentId: InternDokumentId,
+    ): Sykepengegrunnlag {
+        val hovedkategori = rettighetskategoriClient.hentHovedkategori(rettighetskategoriId, fødselsnummer)
+        check(hovedkategori == Hovedkategori.SELVSTENDIG_NAERINGSDRIVENDE) { "Hovedkategorien $hovedkategori passer ikke med søknaden fra selvstendig næringsdrivende" }
+        val søknad = søknader.hent(søknadInternDokumentId)
+        return Sykepengegrunnlag
+            .fastsettForSelvstendig(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, søknad, nå = Instant.now())
+            .also { lagre(it, inntektsmeldinger = emptyList()) }
+    }
+
+    private fun lagre(
+        grunnlag: Sykepengegrunnlag,
+        inntektsmeldinger: List<Inntektsmelding>,
+    ) {
+        sessionOf(dataSource).use { session ->
+            session.transaction { tx -> PgSykepengegrunnlagRepository(tx).lagre(grunnlag, inntektsmeldinger) }
+        }
     }
 
     private companion object {

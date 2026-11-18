@@ -15,7 +15,7 @@ internal object TestDatabase {
 
     val dataSource: DataSource = database.dataSource
 
-    fun tøm() = database.tøm("subsumsjon", "arbeidsgiverinntekt", "sykepengegrunnlag", "inntektsmelding")
+    fun tøm() = database.tøm("subsumsjon", "arbeidsgiverinntekt", "selvstendiginntekt", "sykepengegrunnlag", "inntektsmelding", "pensjonsgivende_inntekt", "soknad")
 
     data class Grunnlagsrad(
         val id: UUID,
@@ -43,6 +43,28 @@ internal object TestDatabase {
         val orgnummer: String,
         val beregnetInntekt: BigDecimal,
         val mottattDato: Instant,
+    )
+
+    data class Selvstendigrad(
+        val sykepengegrunnlagId: UUID,
+        val søknadInternDokumentId: UUID,
+        val søknadHentet: Instant,
+        val fastsattÅrsinntekt: BigDecimal,
+    )
+
+    data class Søknadsrad(
+        val internDokumentId: UUID,
+        val søknadId: UUID,
+    )
+
+    data class PensjonsgivendeInntektsrad(
+        val søknadInternDokumentId: UUID,
+        val år: Int,
+        val erFerdigLignet: Boolean,
+        val lønnsinntekt: Int,
+        val lønnsinntektBarePensjonsdel: Int,
+        val næringsinntekt: Int,
+        val næringsinntektFraFiskeFangstEllerFamiliebarnehage: Int,
     )
 
     data class Subsumsjonsrad(
@@ -95,6 +117,34 @@ internal object TestDatabase {
     fun inntektsmeldingoppslag(): List<Pair<UUID, Instant>> =
         liste("SELECT sykepengegrunnlag_id, inntektsmelding_hentet FROM arbeidsgiverinntekt ORDER BY løpenummer") { row ->
             row.uuid("sykepengegrunnlag_id") to row.instant("inntektsmelding_hentet")
+        }
+
+    fun selvstendiginntekter(): List<Selvstendigrad> =
+        liste("SELECT * FROM selvstendiginntekt ORDER BY søknad_hentet") { row ->
+            Selvstendigrad(
+                sykepengegrunnlagId = row.uuid("sykepengegrunnlag_id"),
+                søknadInternDokumentId = row.uuid("søknad_intern_dokument_id"),
+                søknadHentet = row.instant("søknad_hentet"),
+                fastsattÅrsinntekt = row.bigDecimal("fastsatt_årsinntekt"),
+            )
+        }
+
+    fun søknader(): List<Søknadsrad> =
+        liste("SELECT * FROM soknad ORDER BY intern_dokument_id") { row ->
+            Søknadsrad(internDokumentId = row.uuid("intern_dokument_id"), søknadId = row.uuid("søknad_id"))
+        }
+
+    fun pensjonsgivendeInntekter(): List<PensjonsgivendeInntektsrad> =
+        liste("SELECT * FROM pensjonsgivende_inntekt ORDER BY søknad_intern_dokument_id, år") { row ->
+            PensjonsgivendeInntektsrad(
+                søknadInternDokumentId = row.uuid("søknad_intern_dokument_id"),
+                år = row.int("år"),
+                erFerdigLignet = row.boolean("er_ferdig_lignet"),
+                lønnsinntekt = row.bigDecimal("lønnsinntekt").intValueExact(),
+                lønnsinntektBarePensjonsdel = row.bigDecimal("lønnsinntekt_bare_pensjonsdel").intValueExact(),
+                næringsinntekt = row.bigDecimal("næringsinntekt").intValueExact(),
+                næringsinntektFraFiskeFangstEllerFamiliebarnehage = row.bigDecimal("næringsinntekt_fra_fiske_fangst_eller_familiebarnehage").intValueExact(),
+            )
         }
 
     fun subsumsjoner(): List<Subsumsjonsrad> =
