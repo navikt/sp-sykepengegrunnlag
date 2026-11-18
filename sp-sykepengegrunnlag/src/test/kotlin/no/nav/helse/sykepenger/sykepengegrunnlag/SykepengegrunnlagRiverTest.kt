@@ -37,7 +37,9 @@ internal class SykepengegrunnlagRiverTest {
     fun `fastsetter grunnlaget fra inntektsmeldingen til én arbeidsgiver`() {
         val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
         val mottatt = LocalDateTime.of(2026, 1, 15, 9, 30)
-        val inntektsmelding = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1, beregnetInntekt = "30000.0", mottattDato = mottatt)
+        val inntektsmeldingId = UUID.randomUUID()
+        val inntektsmelding =
+            spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1, beregnetInntekt = "30000.0", mottattDato = mottatt, inntektsmeldingId = inntektsmeldingId)
 
         rapid.sendTestMessage(
             lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, inntektsmelding))),
@@ -66,7 +68,7 @@ internal class SykepengegrunnlagRiverTest {
                     sykepengegrunnlagId = id,
                     orgnummer = A1,
                     inntektskilde = "INNTEKTSMELDING",
-                    inntektsmeldingId = inntektsmelding,
+                    inntektsmeldingInternDokumentId = inntektsmelding,
                     omregnetÅrsinntekt = grunnlag.beregningsgrunnlag,
                 ),
             ),
@@ -75,6 +77,7 @@ internal class SykepengegrunnlagRiverTest {
 
         val lagretInntektsmelding = TestDatabase.inntektsmeldinger().single()
         assertEquals(inntektsmelding, lagretInntektsmelding.internDokumentId)
+        assertEquals(inntektsmeldingId, lagretInntektsmelding.inntektsmeldingId)
         assertEquals(A1, lagretInntektsmelding.orgnummer)
         assertBeløp("30000", lagretInntektsmelding.beregnetInntekt)
         assertEquals(mottatt.atZone(ZoneId.of("Europe/Oslo")).toInstant(), lagretInntektsmelding.mottattDato)
@@ -105,7 +108,7 @@ internal class SykepengegrunnlagRiverTest {
         assertBeløp("420006", grunnlag.sykepengegrunnlag)
 
         val arbeidsgivere = TestDatabase.arbeidsgivere()
-        assertEquals(listOf(A1 to im1, A2 to im2), arbeidsgivere.map { it.orgnummer to it.inntektsmeldingId })
+        assertEquals(listOf(A1 to im1, A2 to im2), arbeidsgivere.map { it.orgnummer to it.inntektsmeldingInternDokumentId })
         assertBeløp("240000", arbeidsgivere[0].omregnetÅrsinntekt)
         assertBeløp("180006", arbeidsgivere[1].omregnetÅrsinntekt)
         assertEquals(setOf(im1, im2), TestDatabase.inntektsmeldinger().map { it.internDokumentId }.toSet())

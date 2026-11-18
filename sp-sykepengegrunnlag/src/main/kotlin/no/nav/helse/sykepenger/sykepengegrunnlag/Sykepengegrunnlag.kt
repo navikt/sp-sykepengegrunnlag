@@ -16,8 +16,14 @@ internal value class RettighetskategoriId(
     val uuid: UUID,
 )
 
+@JvmInline
+internal value class InntektsmeldingId(
+    val uuid: UUID,
+)
+
 internal data class Inntektsmelding(
     val internDokumentId: InternDokumentId,
+    val inntektsmeldingId: InntektsmeldingId,
     val orgnummer: Organisasjonsnummer,
     val beregnetInntektMånedlig: BigDecimal,
     val mottattDato: Instant,
@@ -27,7 +33,7 @@ internal data class Inntektsmelding(
 internal data class Arbeidsgiverinntekt(
     val orgnummer: Organisasjonsnummer,
     val inntektskilde: Inntektskilde,
-    val inntektsmeldingId: InternDokumentId?,
+    val inntektsmeldingInternDokumentId: InternDokumentId?,
     val inntektsmeldingHentet: Instant?,
     val omregnetÅrsinntekt: BigDecimal,
 ) {
@@ -36,7 +42,7 @@ internal data class Arbeidsgiverinntekt(
             Arbeidsgiverinntekt(
                 orgnummer = inntektsmelding.orgnummer,
                 inntektskilde = Inntektskilde.INNTEKTSMELDING,
-                inntektsmeldingId = inntektsmelding.internDokumentId,
+                inntektsmeldingInternDokumentId = inntektsmelding.internDokumentId,
                 inntektsmeldingHentet = inntektsmelding.hentet,
                 omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * BigDecimal(12),
             )

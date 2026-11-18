@@ -8,6 +8,7 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.util.UUID
 
 internal class Inntektsmeldinger(
     private val spedisjonClient: SpedisjonClient,
@@ -26,6 +27,7 @@ internal class Inntektsmeldinger(
         val body = objectMapper.readTree(jsonBody)
         return Inntektsmelding(
             internDokumentId = InternDokumentId(internDokumentId),
+            inntektsmeldingId = InntektsmeldingId(UUID.fromString(body.path("inntektsmeldingId").asString())),
             orgnummer = Organisasjonsnummer.fraString(body.path("virksomhetsnummer").asString()),
             beregnetInntektMånedlig = BigDecimal(body.path("beregnetInntekt").asString()),
             mottattDato = LocalDateTime.parse(body.path("mottattDato").asString()).atZone(OSLO).toInstant(),

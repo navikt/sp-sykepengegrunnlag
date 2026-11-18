@@ -27,8 +27,8 @@ internal class PgSykepengegrunnlagRepository(
         @Language("PostgreSQL")
         val sql =
             """
-            INSERT INTO inntektsmelding (intern_dokument_id, fødselsnummer, orgnummer, beregnet_inntekt, mottatt_dato)
-            VALUES (:internDokumentId, :fodselsnummer, :orgnummer, :beregnetInntekt, :mottattDato)
+            INSERT INTO inntektsmelding (intern_dokument_id, inntektsmelding_id, fødselsnummer, orgnummer, beregnet_inntekt, mottatt_dato)
+            VALUES (:internDokumentId, :inntektsmeldingId, :fodselsnummer, :orgnummer, :beregnetInntekt, :mottattDato)
             ON CONFLICT (intern_dokument_id) DO NOTHING
             """
         tx.run(
@@ -36,6 +36,7 @@ internal class PgSykepengegrunnlagRepository(
                 sql,
                 mapOf(
                     "internDokumentId" to inntektsmelding.internDokumentId.uuid,
+                    "inntektsmeldingId" to inntektsmelding.inntektsmeldingId.uuid,
                     "fodselsnummer" to fødselsnummer.verdi,
                     "orgnummer" to inntektsmelding.orgnummer.verdi,
                     "beregnetInntekt" to inntektsmelding.beregnetInntektMånedlig.tilDesimal(),
@@ -78,9 +79,9 @@ internal class PgSykepengegrunnlagRepository(
         @Language("PostgreSQL")
         val sql =
             """
-            INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_id, inntektsmelding_hentet,
+            INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_intern_dokument_id, inntektsmelding_hentet,
                                              omregnet_årsinntekt)
-            VALUES (:sykepengegrunnlagId, :orgnummer, :inntektskilde, :inntektsmeldingId, :inntektsmeldingHentet, :omregnetArsinntekt)
+            VALUES (:sykepengegrunnlagId, :orgnummer, :inntektskilde, :inntektsmeldingInternDokumentId, :inntektsmeldingHentet, :omregnetArsinntekt)
             """
         tx.run(
             queryOf(
@@ -89,7 +90,7 @@ internal class PgSykepengegrunnlagRepository(
                     "sykepengegrunnlagId" to grunnlag.id.uuid,
                     "orgnummer" to arbeidsgiver.orgnummer.verdi,
                     "inntektskilde" to arbeidsgiver.inntektskilde.name,
-                    "inntektsmeldingId" to arbeidsgiver.inntektsmeldingId?.uuid,
+                    "inntektsmeldingInternDokumentId" to arbeidsgiver.inntektsmeldingInternDokumentId?.uuid,
                     "inntektsmeldingHentet" to arbeidsgiver.inntektsmeldingHentet,
                     "omregnetArsinntekt" to arbeidsgiver.omregnetÅrsinntekt.tilDesimal(),
                 ),

@@ -62,8 +62,8 @@ internal class SlettPersonRiverTest {
         val sql =
             """
             WITH inntektsmelding AS (
-                INSERT INTO inntektsmelding (intern_dokument_id, fødselsnummer, orgnummer, beregnet_inntekt, mottatt_dato)
-                VALUES (gen_random_uuid(), :fodselsnummer, '987654321', 30000, now())
+                INSERT INTO inntektsmelding (intern_dokument_id, inntektsmelding_id, fødselsnummer, orgnummer, beregnet_inntekt, mottatt_dato)
+                VALUES (gen_random_uuid(), gen_random_uuid(), :fodselsnummer, '987654321', 30000, now())
                 RETURNING intern_dokument_id
             ), grunnlag AS (
                 INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, beregningsgrunnlag,
@@ -71,7 +71,7 @@ internal class SlettPersonRiverTest {
                 VALUES (gen_random_uuid(), :fodselsnummer, '2026-01-01', gen_random_uuid(), 'VILKÅRSPRØVING', 360000, 360000, 130160)
                 RETURNING id
             ), arbeidsgiver AS (
-                INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_id, inntektsmelding_hentet, omregnet_årsinntekt)
+                INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_intern_dokument_id, inntektsmelding_hentet, omregnet_årsinntekt)
                 SELECT grunnlag.id, '987654321', 'INNTEKTSMELDING', inntektsmelding.intern_dokument_id, now(), 360000 FROM grunnlag, inntektsmelding
             )
             INSERT INTO subsumsjon (sykepengegrunnlag_id, lovverk, versjon, paragraf, ledd, punktum, utfall, input, output)

@@ -31,9 +31,10 @@ internal class FakeSpedisjon {
         orgnummer: String,
         beregnetInntekt: String = "30000",
         mottattDato: LocalDateTime = LocalDateTime.of(2026, 1, 20, 12, 0),
+        inntektsmeldingId: UUID = UUID.randomUUID(),
     ): UUID {
         val internDokumentId = UUID.randomUUID()
-        val eksternDokumentId = UUID.randomUUID()
+        val eksternDokumentId = inntektsmeldingId
         val inntektsmelding =
             mapOf(
                 "inntektsmeldingId" to eksternDokumentId.toString(),

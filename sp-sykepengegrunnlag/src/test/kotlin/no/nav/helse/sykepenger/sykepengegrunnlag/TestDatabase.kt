@@ -33,12 +33,13 @@ internal object TestDatabase {
         val sykepengegrunnlagId: UUID,
         val orgnummer: String,
         val inntektskilde: String,
-        val inntektsmeldingId: UUID?,
+        val inntektsmeldingInternDokumentId: UUID?,
         val omregnetÅrsinntekt: BigDecimal,
     )
 
     data class Inntektsmeldingrad(
         val internDokumentId: UUID,
+        val inntektsmeldingId: UUID,
         val orgnummer: String,
         val beregnetInntekt: BigDecimal,
         val mottattDato: Instant,
@@ -75,7 +76,7 @@ internal object TestDatabase {
                 sykepengegrunnlagId = row.uuid("sykepengegrunnlag_id"),
                 orgnummer = row.string("orgnummer"),
                 inntektskilde = row.string("inntektskilde"),
-                inntektsmeldingId = row.uuidOrNull("inntektsmelding_id"),
+                inntektsmeldingInternDokumentId = row.uuidOrNull("inntektsmelding_intern_dokument_id"),
                 omregnetÅrsinntekt = row.bigDecimal("omregnet_årsinntekt"),
             )
         }
@@ -84,6 +85,7 @@ internal object TestDatabase {
         liste("SELECT * FROM inntektsmelding ORDER BY mottatt_dato") { row ->
             Inntektsmeldingrad(
                 internDokumentId = row.uuid("intern_dokument_id"),
+                inntektsmeldingId = row.uuid("inntektsmelding_id"),
                 orgnummer = row.string("orgnummer"),
                 beregnetInntekt = row.bigDecimal("beregnet_inntekt"),
                 mottattDato = row.instant("mottatt_dato"),
