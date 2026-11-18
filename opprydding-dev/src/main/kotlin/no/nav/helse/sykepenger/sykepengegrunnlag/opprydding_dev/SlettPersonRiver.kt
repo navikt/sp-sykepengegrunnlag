@@ -7,6 +7,7 @@ import com.github.navikt.tbd_libs.rapids_and_rivers_api.MessageMetadata
 import com.github.navikt.tbd_libs.rapids_and_rivers_api.RapidsConnection
 import io.micrometer.core.instrument.MeterRegistry
 import kotliquery.TransactionalSession
+import kotliquery.queryOf
 import kotliquery.sessionOf
 import org.intellij.lang.annotations.Language
 import javax.sql.DataSource
@@ -39,12 +40,13 @@ internal class SlettPersonRiver(
         context.publish(fødselsnummer, lagPersonSlettet(fødselsnummer))
     }
 
-    @Suppress("UNUSED_PARAMETER")
     private fun slettPerson(
         tx: TransactionalSession,
         fødselsnummer: String,
     ) {
-        // Databasen har ingen tabeller med persondata ennå. Slett fra dem her når de kommer.
+        listOf(SLETT_SUBSUMSJONER, SLETT_ARBEIDSGIVERINNTEKTER, SLETT_SYKEPENGEGRUNNLAG, SLETT_INNTEKTSMELDINGER).forEach { sql ->
+            tx.run(queryOf(sql, mapOf("fodselsnummer" to fødselsnummer)).asUpdate)
+        }
     }
 
     @Language("JSON")
@@ -55,4 +57,20 @@ internal class SlettPersonRiver(
             "fødselsnummer": "$fødselsnummer"
         }
         """.trimIndent()
+
+    private companion object {
+        @Language("PostgreSQL")
+        const val SLETT_SUBSUMSJONER =
+            "DELETE FROM subsumsjon WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
+
+        @Language("PostgreSQL")
+        const val SLETT_ARBEIDSGIVERINNTEKTER =
+            "DELETE FROM arbeidsgiverinntekt WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
+
+        @Language("PostgreSQL")
+        const val SLETT_SYKEPENGEGRUNNLAG = "DELETE FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer"
+
+        @Language("PostgreSQL")
+        const val SLETT_INNTEKTSMELDINGER = "DELETE FROM inntektsmelding WHERE fødselsnummer = :fodselsnummer"
+    }
 }

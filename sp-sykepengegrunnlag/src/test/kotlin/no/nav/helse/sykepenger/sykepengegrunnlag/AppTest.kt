@@ -57,6 +57,8 @@ internal class AppTest {
                             "KAFKA_RESET_POLICY" to "earliest",
                         ),
                 kafkaConfig = kafkaConfig,
+                spedisjonClient = FakeSpedisjon().client,
+                rettighetskategoriClient = FakeRettighetskategori().client,
             )
         }
         ventTil("applikasjonen er klar") { statuskode("/isready") == 200 }

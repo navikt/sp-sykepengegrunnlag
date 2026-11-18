@@ -1,6 +1,8 @@
 # sp-sykepengegrunnlag
 
-Appen skal fastsette sykepengegrunnlaget. Foreløpig er den bare et skall uten domenelogikk: den kobler seg til rapiden, svarer på `ping` med `pong`, kjører Flyway-migreringer mot sin egen Postgres-database og svarer på helsesjekkene `isalive` og `isready`.
+Appen fastsetter sykepengegrunnlaget. Den svarer på behovet `Sykepengegrunnlag` fra Spleis med en sykepengegrunnlag-ID. Foreløpig svarer den bare når alle arbeidsgiverne har inntektskilden `INNTEKTSMELDING`.
+
+Appen henter inntektsmeldingene fra Spedisjon og slår opp rettighetskategorien i sp-rettighetskategori. Reglene for beregningsgrunnlaget, 6G-begrensningen og grunnbeløpet er kopiert fra Spleis. Grunnlaget, opplysningene fra inntektsmeldingene og subsumsjonene lagres i appens egen Postgres-database. Appen lagrer ikke kopier av inntektsmeldingene.
 
 Bygg og kjør testene:
 
@@ -12,7 +14,7 @@ Bygg og kjør testene:
 
 - `sp-sykepengegrunnlag`: selve appen.
 - `migreringer`: Flyway-migreringer for databasen.
-- `opprydding-dev`: sletter persondata i dev når det kommer `slett_person` på rapiden, og svarer med `person_slettet`. Databasen har ingen tabeller med persondata ennå.
+- `opprydding-dev`: sletter persondata i dev når det kommer `slett_person` på rapiden, og svarer med `person_slettet`.
 
 ## Henvendelser
 

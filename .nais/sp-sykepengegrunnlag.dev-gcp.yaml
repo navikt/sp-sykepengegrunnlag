@@ -21,3 +21,8 @@ spec:
             value: "on"
   kafka:
     pool: nav-dev
+  env:
+    - name: SP_RETTIGHETSKATEGORI_SCOPE
+      value: "api://dev-gcp.tbd.sp-rettighetskategori/.default"
+    - name: SPEDISJON_SCOPE
+      value: "api://dev-gcp.tbd.spedisjon/.default"
