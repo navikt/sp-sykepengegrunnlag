@@ -38,7 +38,7 @@ internal class SykepengegrunnlagRiver(
                     it.require("$BEHOV.rettighetskategoriId") { node -> UUID.fromString(node.asString()) }
                     it.requireArray("$BEHOV.arbeidsgivere") {
                         requireKey("orgnummer", "inntektskilde")
-                        interestedIn("inntektsmeldingId")
+                        interestedIn("inntektsmeldingMeldingsreferanseId")
                     }
                     it.interestedIn("$BEHOV.selvstendig")
                 }
@@ -67,7 +67,7 @@ internal class SykepengegrunnlagRiver(
                 return@medMdc
             }
             try {
-                val inntektsmeldingIder = arbeidsgivere.map { InternDokumentId(UUID.fromString(it.path("inntektsmeldingId").asString())) }
+                val inntektsmeldingIder = arbeidsgivere.map { InternDokumentId(UUID.fromString(it.path("inntektsmeldingMeldingsreferanseId").asString())) }
                 val grunnlag = fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, inntektsmeldingIder)
                 packet["@løsning"] = mapOf(BEHOV to mapOf("id" to grunnlag.id.uuid.toString()))
                 loggInfo(

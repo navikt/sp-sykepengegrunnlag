@@ -250,7 +250,7 @@ internal class SykepengegrunnlagRiverTest {
         val behov =
             lagSykepengegrunnlagBehov(
                 rettighetskategoriId,
-                listOf(lagArbeidsgiver(A1, im), lagArbeidsgiver(A2, inntektsmeldingId = null, inntektskilde = "A_ORDNINGEN")),
+                listOf(lagArbeidsgiver(A1, im), lagArbeidsgiver(A2, inntektsmeldingMeldingsreferanseId = null, inntektskilde = "A_ORDNINGEN")),
             )
         rapid.sendTestMessage(behov, FØDSELSNUMMER)
 
@@ -320,9 +320,9 @@ internal class SykepengegrunnlagRiverTest {
     @Language("JSON")
     private fun lagArbeidsgiver(
         orgnummer: String,
-        inntektsmeldingId: UUID?,
+        inntektsmeldingMeldingsreferanseId: UUID?,
         inntektskilde: String = "INNTEKTSMELDING",
-    ) = """{"orgnummer": "$orgnummer", "inntektskilde": "$inntektskilde"${inntektsmeldingId?.let { ", \"inntektsmeldingId\": \"$it\"" } ?: ""}}"""
+    ) = """{"orgnummer": "$orgnummer", "inntektskilde": "$inntektskilde"${inntektsmeldingMeldingsreferanseId?.let { ", \"inntektsmeldingMeldingsreferanseId\": \"$it\"" } ?: ""}}"""
 
     private companion object {
         val A1 = lagOrganisasjonsnummer()
