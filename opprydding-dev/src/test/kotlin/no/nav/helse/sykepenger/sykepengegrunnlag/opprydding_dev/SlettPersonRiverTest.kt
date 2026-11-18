@@ -86,13 +86,13 @@ internal class SlettPersonRiverTest {
         val sql =
             """
             WITH soknad AS (
-                INSERT INTO soknad (intern_dokument_id, søknad_id, fødselsnummer)
+                INSERT INTO soknad (søknad_intern_dokument_id, søknad_id, fødselsnummer)
                 VALUES (gen_random_uuid(), gen_random_uuid(), :fodselsnummer)
-                RETURNING intern_dokument_id
+                RETURNING søknad_intern_dokument_id
             ), inntekt AS (
                 INSERT INTO pensjonsgivende_inntekt (søknad_intern_dokument_id, år, er_ferdig_lignet, lønnsinntekt, lønnsinntekt_bare_pensjonsdel,
                                                      næringsinntekt, næringsinntekt_fra_fiske_fangst_eller_familiebarnehage)
-                SELECT intern_dokument_id, 2025, true, 0, 0, 500000, 0 FROM soknad
+                SELECT søknad_intern_dokument_id, 2025, true, 0, 0, 500000, 0 FROM soknad
             ), grunnlag AS (
                 INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, beregningsgrunnlag,
                                                sykepengegrunnlag, grunnbeløp)
@@ -100,7 +100,7 @@ internal class SlettPersonRiverTest {
                 RETURNING id
             )
             INSERT INTO selvstendiginntekt (sykepengegrunnlag_id, søknad_intern_dokument_id, søknad_hentet, fastsatt_årsinntekt)
-            SELECT grunnlag.id, soknad.intern_dokument_id, now(), 500000 FROM grunnlag, soknad
+            SELECT grunnlag.id, soknad.søknad_intern_dokument_id, now(), 500000 FROM grunnlag, soknad
             """
         sessionOf(Database.dataSource).use {
             it.run(queryOf(sql, mapOf("fodselsnummer" to fødselsnummer)).asUpdate)
@@ -154,7 +154,7 @@ internal class SlettPersonRiverTest {
             "soknad" to antall("SELECT COUNT(*) FROM soknad WHERE fødselsnummer = :fodselsnummer", fødselsnummer),
             "pensjonsgivende_inntekt" to
                 antall(
-                    "SELECT COUNT(*) FROM pensjonsgivende_inntekt p JOIN soknad s ON s.intern_dokument_id = p.søknad_intern_dokument_id WHERE s.fødselsnummer = :fodselsnummer",
+                    "SELECT COUNT(*) FROM pensjonsgivende_inntekt p JOIN soknad s ON s.søknad_intern_dokument_id = p.søknad_intern_dokument_id WHERE s.fødselsnummer = :fodselsnummer",
                     fødselsnummer,
                 ),
         )

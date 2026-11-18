@@ -57,15 +57,15 @@ internal class PgSykepengegrunnlagRepository(
         @Language("PostgreSQL")
         val søknadSql =
             """
-            INSERT INTO soknad (intern_dokument_id, søknad_id, fødselsnummer)
-            VALUES (:internDokumentId, :soknadId, :fodselsnummer)
-            ON CONFLICT (intern_dokument_id) DO NOTHING
+            INSERT INTO soknad (søknad_intern_dokument_id, søknad_id, fødselsnummer)
+            VALUES (:soknadInternDokumentId, :soknadId, :fodselsnummer)
+            ON CONFLICT (søknad_intern_dokument_id) DO NOTHING
             """
         tx.run(
             queryOf(
                 søknadSql,
                 mapOf(
-                    "internDokumentId" to søknad.internDokumentId.uuid,
+                    "soknadInternDokumentId" to søknad.internDokumentId.uuid,
                     "soknadId" to søknad.søknadId.uuid,
                     "fodselsnummer" to fødselsnummer.verdi,
                 ),

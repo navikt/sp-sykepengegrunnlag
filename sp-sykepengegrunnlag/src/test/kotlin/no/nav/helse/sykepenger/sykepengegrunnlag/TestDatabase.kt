@@ -130,8 +130,8 @@ internal object TestDatabase {
         }
 
     fun søknader(): List<Søknadsrad> =
-        liste("SELECT * FROM soknad ORDER BY intern_dokument_id") { row ->
-            Søknadsrad(internDokumentId = row.uuid("intern_dokument_id"), søknadId = row.uuid("søknad_id"))
+        liste("SELECT * FROM soknad ORDER BY søknad_intern_dokument_id") { row ->
+            Søknadsrad(internDokumentId = row.uuid("søknad_intern_dokument_id"), søknadId = row.uuid("søknad_id"))
         }
 
     fun pensjonsgivendeInntekter(): List<PensjonsgivendeInntektsrad> =

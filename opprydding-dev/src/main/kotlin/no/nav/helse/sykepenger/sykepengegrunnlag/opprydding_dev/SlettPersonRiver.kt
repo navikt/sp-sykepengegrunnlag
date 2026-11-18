@@ -87,7 +87,7 @@ internal class SlettPersonRiver(
 
         @Language("PostgreSQL")
         const val SLETT_PENSJONSGIVENDE_INNTEKTER =
-            "DELETE FROM pensjonsgivende_inntekt WHERE søknad_intern_dokument_id IN (SELECT intern_dokument_id FROM soknad WHERE fødselsnummer = :fodselsnummer)"
+            "DELETE FROM pensjonsgivende_inntekt WHERE søknad_intern_dokument_id IN (SELECT søknad_intern_dokument_id FROM soknad WHERE fødselsnummer = :fodselsnummer)"
 
         @Language("PostgreSQL")
         const val SLETT_SØKNADER = "DELETE FROM soknad WHERE fødselsnummer = :fodselsnummer"
