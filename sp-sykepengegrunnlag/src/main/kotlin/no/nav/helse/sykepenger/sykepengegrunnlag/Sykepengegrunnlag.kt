@@ -1,6 +1,7 @@
 package no.nav.helse.sykepenger.sykepengegrunnlag
 
 import java.math.BigDecimal
+import java.math.MathContext
 import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
@@ -148,7 +149,7 @@ internal data class Arbeidsgiverinntekt(
                 omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * BigDecimal(12),
             )
 
-        /** § 8-28 tredje ledd bokstav a: snittet av månedene i [beregningsperiodeForAOrdningen], regnet om til årsinntekt, som `SkatteopplysningerForSykepengegrunnlag` i Spleis. */
+        /** § 8-28 tredje ledd bokstav a: gjennomsnittet av de tre månedene før skjæringstidspunktet, regnet om til årsinntekt. */
         fun fraAOrdningen(
             orgnummer: Organisasjonsnummer,
             oppslag: AOrdningsoppslag,
@@ -158,6 +159,11 @@ internal data class Arbeidsgiverinntekt(
                     .filter { it.virksomhet == orgnummer.verdi }
                     .map { it.skatteopplysning }
             val sum = skatteopplysninger.fold(BigDecimal.ZERO) { sum, opplysning -> sum + opplysning.beløp }
+            // Regnes som Skatteopplysning.omregnetÅrsinntekt i Spleis, slik at grunnlaget blir likt:
+            // - Summen deles alltid på tre, også når a-ordningen mangler inntekt for noen av månedene. Et kortere tidsrom
+            //   etter § 8-28 tredje ledd bokstav b må saksbehandler fastsette ved å overstyre inntekten.
+            // - En negativ sum, for eksempel når arbeidsgiveren har trukket tilbake lønn, gir 0.
+            val gjennomsnittPerMåned = sum.max(BigDecimal.ZERO).divide(BigDecimal(MÅNEDER_I_BEREGNINGSPERIODEN), MathContext.DECIMAL128)
             return Arbeidsgiverinntekt(
                 orgnummer = orgnummer,
                 inntektskilde = Inntektskilde.A_ORDNINGEN,
@@ -165,14 +171,16 @@ internal data class Arbeidsgiverinntekt(
                 inntektsmeldingHentet = null,
                 skatteopplysninger = skatteopplysninger,
                 aOrdningenHentet = oppslag.hentet,
-                omregnetÅrsinntekt = sum.max(BigDecimal.ZERO) * BigDecimal(4),
+                omregnetÅrsinntekt = (gjennomsnittPerMåned * BigDecimal(12)).setScale(2, RoundingMode.HALF_UP),
             )
         }
 
         fun beregningsperiodeForAOrdningen(skjæringstidspunkt: LocalDate): ClosedRange<YearMonth> {
             val utgangspunkt = YearMonth.from(skjæringstidspunkt)
-            return utgangspunkt.minusMonths(3)..utgangspunkt.minusMonths(1)
+            return utgangspunkt.minusMonths(MÅNEDER_I_BEREGNINGSPERIODEN)..utgangspunkt.minusMonths(1)
         }
+
+        private const val MÅNEDER_I_BEREGNINGSPERIODEN = 3L
     }
 }
 

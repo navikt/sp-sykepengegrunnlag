@@ -378,6 +378,20 @@ internal class SykepengegrunnlagRiverTest {
     }
 
     @Test
+    fun `deler alltid på tre måneder, også når a-ordningen bare har inntekt for noen av dem`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 12), "30000")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, 11), "10000")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, 12), "10000.01")
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A1), lagAOrdningen(A2))), FØDSELSNUMMER)
+
+        val arbeidsgivere = TestDatabase.arbeidsgivere()
+        assertBeløp("120000", arbeidsgivere[0].omregnetÅrsinntekt)
+        assertBeløp("80000.04", arbeidsgivere[1].omregnetÅrsinntekt)
+    }
+
+    @Test
     fun `inntekten fra a-ordningen blir ikke negativ`() {
         val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
         inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 11), "1000")
@@ -423,7 +437,7 @@ internal class SykepengegrunnlagRiverTest {
             """,
             subsumsjon.input,
         )
-        assertJsonEquals("""{"beregnetGrunnlagForSykepengegrunnlagPrÅr": 90000, "beregnetGrunnlagForSykepengegrunnlagPrMåned": 7500.00}""", subsumsjon.output)
+        assertJsonEquals("""{"beregnetGrunnlagForSykepengegrunnlagPrÅr": 90000.00, "beregnetGrunnlagForSykepengegrunnlagPrMåned": 7500.00}""", subsumsjon.output)
         assertEquals(listOf("8-28", "8-10"), TestDatabase.subsumsjoner().map { it.paragraf })
     }
 
