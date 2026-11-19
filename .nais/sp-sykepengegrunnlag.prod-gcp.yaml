@@ -24,3 +24,11 @@ spec:
       value: "api://prod-gcp.tbd.sp-rettighetskategori/.default"
     - name: SPEDISJON_SCOPE
       value: "api://prod-gcp.tbd.spedisjon/.default"
+    - name: INNTEKTSKOMPONENTEN_BASE_URL
+      value: https://ikomp.prod-fss-pub.nais.io/rs
+    - name: INNTEKTSKOMPONENTEN_SCOPE
+      value: "api://prod-fss.team-inntekt.ikomp/.default"
+  accessPolicy:
+    outbound:
+      external:
+        - host: ikomp.prod-fss-pub.nais.io
