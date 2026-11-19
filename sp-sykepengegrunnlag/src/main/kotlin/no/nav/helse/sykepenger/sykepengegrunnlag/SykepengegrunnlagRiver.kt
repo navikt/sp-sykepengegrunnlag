@@ -154,7 +154,7 @@ internal class SykepengegrunnlagRiver(
             }
         return Sykepengegrunnlag
             .fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, arbeidsgivere, nå = Instant.now())
-            .also { lagre(it, inntektsmeldinger) }
+            .also { lagre(it, inntektsmeldinger, aOrdningen) }
     }
 
     private fun fastsettForSelvstendig(
@@ -168,15 +168,16 @@ internal class SykepengegrunnlagRiver(
         val søknad = søknader.hent(søknadInternDokumentId)
         return Sykepengegrunnlag
             .fastsettForSelvstendig(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, søknad, nå = Instant.now())
-            .also { lagre(it, inntektsmeldinger = emptyList()) }
+            .also { lagre(it, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
     }
 
     private fun lagre(
         grunnlag: Sykepengegrunnlag,
         inntektsmeldinger: List<Inntektsmelding>,
+        aOrdningsoppslag: AOrdningsoppslag?,
     ) {
         sessionOf(dataSource).use { session ->
-            session.transaction { tx -> PgSykepengegrunnlagRepository(tx).lagre(grunnlag, inntektsmeldinger) }
+            session.transaction { tx -> PgSykepengegrunnlagRepository(tx).lagre(grunnlag, inntektsmeldinger, aOrdningsoppslag) }
         }
     }
 

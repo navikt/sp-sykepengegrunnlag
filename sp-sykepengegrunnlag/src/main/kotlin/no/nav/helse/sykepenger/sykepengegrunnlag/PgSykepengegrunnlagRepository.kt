@@ -6,6 +6,10 @@ import org.intellij.lang.annotations.Language
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.util.UUID
 
 internal class PgSykepengegrunnlagRepository(
     private val tx: TransactionalSession,
@@ -13,18 +17,12 @@ internal class PgSykepengegrunnlagRepository(
     override fun lagre(
         grunnlag: Sykepengegrunnlag,
         inntektsmeldinger: List<Inntektsmelding>,
+        aOrdningsoppslag: AOrdningsoppslag?,
     ) {
         inntektsmeldinger.forEach { lagreInntektsmelding(grunnlag.fødselsnummer, it) }
+        aOrdningsoppslag?.let { lagreAOrdningsoppslag(grunnlag.fødselsnummer, it) }
+        grunnlag.selvstendig?.let { lagreSøknad(grunnlag.fødselsnummer, it.søknad) }
         lagreGrunnlag(grunnlag)
-        grunnlag.arbeidsgivere.forEach {
-            lagreArbeidsgiver(grunnlag, it)
-            it.skatteopplysninger.forEach { skatteopplysning -> lagreSkatteopplysning(grunnlag, it, skatteopplysning) }
-        }
-        grunnlag.selvstendig?.let {
-            lagreSøknad(grunnlag.fødselsnummer, it.søknad)
-            lagreSelvstendig(grunnlag, it)
-        }
-        grunnlag.subsumsjoner.forEach { lagreSubsumsjon(grunnlag, it) }
     }
 
     private fun lagreInntektsmelding(
@@ -48,6 +46,32 @@ internal class PgSykepengegrunnlagRepository(
                     "orgnummer" to inntektsmelding.orgnummer.verdi,
                     "beregnetInntekt" to inntektsmelding.beregnetInntektMånedlig.tilDesimal(),
                     "mottattDato" to inntektsmelding.mottattDato,
+                ),
+            ).asUpdate,
+        )
+    }
+
+    private fun lagreAOrdningsoppslag(
+        fødselsnummer: Identitetsnummer,
+        oppslag: AOrdningsoppslag,
+    ) {
+        @Language("PostgreSQL")
+        val sql =
+            """
+            INSERT INTO a_ordningsoppslag (id, fødselsnummer, første_måned, siste_måned, ainntektsfilter, hentet, svar)
+            VALUES (:id, :fodselsnummer, :forsteManed, :sisteManed, :ainntektsfilter, :hentet, CAST(:svar AS jsonb))
+            """
+        tx.run(
+            queryOf(
+                sql,
+                mapOf(
+                    "id" to oppslag.id.uuid,
+                    "fodselsnummer" to fødselsnummer.verdi,
+                    "forsteManed" to oppslag.måneder.start.atDay(1),
+                    "sisteManed" to oppslag.måneder.endInclusive.atDay(1),
+                    "ainntektsfilter" to oppslag.ainntektsfilter,
+                    "hentet" to oppslag.hentet,
+                    "svar" to oppslag.svar,
                 ),
             ).asUpdate,
         )
@@ -102,37 +126,12 @@ internal class PgSykepengegrunnlagRepository(
         }
     }
 
-    private fun lagreSelvstendig(
-        grunnlag: Sykepengegrunnlag,
-        selvstendig: Selvstendiginntekt,
-    ) {
-        @Language("PostgreSQL")
-        val sql =
-            """
-            INSERT INTO selvstendiginntekt (sykepengegrunnlag_id, søknad_intern_dokument_id, søknad_hentet, fastsatt_årsinntekt)
-            VALUES (:sykepengegrunnlagId, :soknadInternDokumentId, :soknadHentet, :fastsattArsinntekt)
-            """
-        tx.run(
-            queryOf(
-                sql,
-                mapOf(
-                    "sykepengegrunnlagId" to grunnlag.id.uuid,
-                    "soknadInternDokumentId" to selvstendig.søknad.internDokumentId.uuid,
-                    "soknadHentet" to selvstendig.søknad.hentet,
-                    "fastsattArsinntekt" to selvstendig.fastsattÅrsinntekt.tilDesimal(),
-                ),
-            ).asUpdate,
-        )
-    }
-
     private fun lagreGrunnlag(grunnlag: Sykepengegrunnlag) {
         @Language("PostgreSQL")
         val sql =
             """
-            INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, beregningsgrunnlag,
-                                           sykepengegrunnlag, grunnbeløp)
-            VALUES (:id, :fodselsnummer, :skjaeringstidspunkt, :rettighetskategoriId, :opphav, :beregningsgrunnlag,
-                    :sykepengegrunnlag, :grunnbelop)
+            INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data)
+            VALUES (:id, :fodselsnummer, :skjaeringstidspunkt, :rettighetskategoriId, :opphav, CAST(:data AS jsonb))
             """
         tx.run(
             queryOf(
@@ -143,104 +142,120 @@ internal class PgSykepengegrunnlagRepository(
                     "skjaeringstidspunkt" to grunnlag.skjæringstidspunkt,
                     "rettighetskategoriId" to grunnlag.rettighetskategoriId.uuid,
                     "opphav" to grunnlag.opphav.name,
-                    "beregningsgrunnlag" to grunnlag.beregningsgrunnlag.tilDesimal(),
-                    "sykepengegrunnlag" to grunnlag.sykepengegrunnlag.tilDesimal(),
-                    "grunnbelop" to grunnlag.grunnbeløp.tilDesimal(),
+                    "data" to objectMapper.writeValueAsString(grunnlag.tilDto()),
                 ),
             ).asUpdate,
         )
     }
 
-    private fun lagreArbeidsgiver(
-        grunnlag: Sykepengegrunnlag,
-        arbeidsgiver: Arbeidsgiverinntekt,
-    ) {
-        @Language("PostgreSQL")
-        val sql =
-            """
-            INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_intern_dokument_id, inntektsmelding_hentet,
-                                             a_ordningen_hentet, omregnet_årsinntekt)
-            VALUES (:sykepengegrunnlagId, :orgnummer, :inntektskilde, :inntektsmeldingInternDokumentId, :inntektsmeldingHentet, :aOrdningenHentet,
-                    :omregnetArsinntekt)
-            """
-        tx.run(
-            queryOf(
-                sql,
-                mapOf(
-                    "sykepengegrunnlagId" to grunnlag.id.uuid,
-                    "orgnummer" to arbeidsgiver.orgnummer.verdi,
-                    "inntektskilde" to arbeidsgiver.inntektskilde.name,
-                    "inntektsmeldingInternDokumentId" to arbeidsgiver.inntektsmeldingInternDokumentId?.uuid,
-                    "inntektsmeldingHentet" to arbeidsgiver.inntektsmeldingHentet,
-                    "aOrdningenHentet" to arbeidsgiver.aOrdningenHentet,
-                    "omregnetArsinntekt" to arbeidsgiver.omregnetÅrsinntekt.tilDesimal(),
-                ),
-            ).asUpdate,
+    private fun Sykepengegrunnlag.tilDto() =
+        SykepengegrunnlagDto(
+            grunnbeløp = grunnbeløp.tilDesimal(),
+            beregningsgrunnlag = beregningsgrunnlag.tilDesimal(),
+            sykepengegrunnlag = sykepengegrunnlag.tilDesimal(),
+            seksG = seksG.tilDesimal(),
+            er6GBegrenset = er6GBegrenset,
+            arbeidsgivere = arbeidsgivere.map { it.tilDto() },
+            selvstendig = selvstendig?.tilDto(),
+            lovreferanser = lovreferanser.map { it.tilDto() },
         )
-    }
 
-    private fun lagreSkatteopplysning(
-        grunnlag: Sykepengegrunnlag,
-        arbeidsgiver: Arbeidsgiverinntekt,
-        skatteopplysning: Skatteopplysning,
-    ) {
-        @Language("PostgreSQL")
-        val sql =
-            """
-            INSERT INTO skatteopplysning (sykepengegrunnlag_id, orgnummer, måned, beløp, type, fordel, beskrivelse)
-            VALUES (:sykepengegrunnlagId, :orgnummer, :maned, :belop, :type, :fordel, :beskrivelse)
-            """
-        tx.run(
-            queryOf(
-                sql,
-                mapOf(
-                    "sykepengegrunnlagId" to grunnlag.id.uuid,
-                    "orgnummer" to arbeidsgiver.orgnummer.verdi,
-                    "maned" to skatteopplysning.måned.atDay(1),
-                    "belop" to skatteopplysning.beløp.tilDesimal(),
-                    "type" to skatteopplysning.type.name,
-                    "fordel" to skatteopplysning.fordel,
-                    "beskrivelse" to skatteopplysning.beskrivelse,
-                ),
-            ).asUpdate,
+    private fun Arbeidsgiverinntekt.tilDto() =
+        ArbeidsgiverinntektDto(
+            orgnummer = orgnummer.verdi,
+            inntektskilde = inntektskilde.name,
+            inntektsmeldingInternDokumentId = inntektsmeldingInternDokumentId?.uuid,
+            inntektsmeldingHentet = inntektsmeldingHentet,
+            aOrdningsoppslagId = aOrdningsoppslagId?.uuid,
+            aOrdningenHentet = aOrdningenHentet,
+            omregnetÅrsinntekt = omregnetÅrsinntekt.tilDesimal(),
+            skatteopplysninger =
+                skatteopplysninger.map {
+                    SkatteopplysningDto(
+                        måned = it.måned,
+                        beløp = it.beløp.tilDesimal(),
+                        type = it.type.name,
+                        fordel = it.fordel,
+                        beskrivelse = it.beskrivelse,
+                    )
+                },
         )
-    }
 
-    private fun lagreSubsumsjon(
-        grunnlag: Sykepengegrunnlag,
-        subsumsjon: Subsumsjon,
-    ) {
-        @Language("PostgreSQL")
-        val sql =
-            """
-            INSERT INTO subsumsjon (sykepengegrunnlag_id, lovverk, versjon, paragraf, ledd, punktum, bokstav, utfall, input, output)
-            VALUES (:sykepengegrunnlagId, :lovverk, :versjon, :paragraf, :ledd, :punktum, :bokstav, :utfall,
-                    CAST(:input AS jsonb), CAST(:output AS jsonb))
-            """
-        tx.run(
-            queryOf(
-                sql,
-                mapOf(
-                    "sykepengegrunnlagId" to grunnlag.id.uuid,
-                    "lovverk" to subsumsjon.lovverk,
-                    "versjon" to subsumsjon.versjon,
-                    "paragraf" to subsumsjon.paragraf,
-                    "ledd" to subsumsjon.ledd,
-                    "punktum" to subsumsjon.punktum,
-                    "bokstav" to subsumsjon.bokstav,
-                    "utfall" to subsumsjon.utfall,
-                    "input" to objectMapper.writeValueAsString(subsumsjon.input.medAvrundedeBeløp()),
-                    "output" to objectMapper.writeValueAsString(subsumsjon.output),
-                ),
-            ).asUpdate,
+    private fun Selvstendiginntekt.tilDto() =
+        SelvstendiginntektDto(
+            søknadInternDokumentId = søknad.internDokumentId.uuid,
+            søknadHentet = søknad.hentet,
+            pensjonsgivendeInntekter = årsinntekter.map { PensjonsgivendeInntektDto(inntektsår = it.år, beløp = it.beløp, gjennomsnittligG = it.snitt) },
+            fastsattÅrsinntekt = fastsattÅrsinntekt.tilDesimal(),
         )
-    }
+
+    private fun Lovreferanse.tilDto() =
+        LovreferanseDto(
+            lov = lov,
+            paragraf = paragraf,
+            avsnitt = avsnitt,
+            setning = setning,
+            bokstav = bokstav,
+            iKraftFra = iKraftFra,
+            utfall = utfall,
+        )
 
     private fun BigDecimal.tilDesimal() = setScale(2, RoundingMode.HALF_UP)
-
-    private fun Map<String, Any>.medAvrundedeBeløp() = mapValues { (_, verdi) -> if (verdi is BigDecimal) verdi.tilDesimal() else verdi }
 
     private companion object {
         val objectMapper = jacksonObjectMapper()
     }
 }
+
+private data class SykepengegrunnlagDto(
+    val grunnbeløp: BigDecimal,
+    val beregningsgrunnlag: BigDecimal,
+    val sykepengegrunnlag: BigDecimal,
+    val seksG: BigDecimal,
+    val er6GBegrenset: Boolean,
+    val arbeidsgivere: List<ArbeidsgiverinntektDto>,
+    val selvstendig: SelvstendiginntektDto?,
+    val lovreferanser: List<LovreferanseDto>,
+)
+
+private data class ArbeidsgiverinntektDto(
+    val orgnummer: String,
+    val inntektskilde: String,
+    val inntektsmeldingInternDokumentId: UUID?,
+    val inntektsmeldingHentet: Instant?,
+    val aOrdningsoppslagId: UUID?,
+    val aOrdningenHentet: Instant?,
+    val omregnetÅrsinntekt: BigDecimal,
+    val skatteopplysninger: List<SkatteopplysningDto>,
+)
+
+private data class SkatteopplysningDto(
+    val måned: YearMonth,
+    val beløp: BigDecimal,
+    val type: String,
+    val fordel: String,
+    val beskrivelse: String,
+)
+
+private data class SelvstendiginntektDto(
+    val søknadInternDokumentId: UUID,
+    val søknadHentet: Instant,
+    val pensjonsgivendeInntekter: List<PensjonsgivendeInntektDto>,
+    val fastsattÅrsinntekt: BigDecimal,
+)
+
+private data class PensjonsgivendeInntektDto(
+    val inntektsår: Int,
+    val beløp: Int,
+    val gjennomsnittligG: Int,
+)
+
+private data class LovreferanseDto(
+    val lov: String,
+    val paragraf: String,
+    val avsnitt: Int?,
+    val setning: Int?,
+    val bokstav: String?,
+    val iKraftFra: LocalDate,
+    val utfall: String,
+)

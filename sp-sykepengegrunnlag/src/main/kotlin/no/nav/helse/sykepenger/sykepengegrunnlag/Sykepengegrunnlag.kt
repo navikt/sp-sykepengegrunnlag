@@ -134,6 +134,7 @@ internal data class Arbeidsgiverinntekt(
     val inntektsmeldingInternDokumentId: InternDokumentId?,
     val inntektsmeldingHentet: Instant?,
     val skatteopplysninger: List<Skatteopplysning>,
+    val aOrdningsoppslagId: AOrdningsoppslag.Id?,
     val aOrdningenHentet: Instant?,
     val omregnetÅrsinntekt: BigDecimal,
 ) {
@@ -145,6 +146,7 @@ internal data class Arbeidsgiverinntekt(
                 inntektsmeldingInternDokumentId = inntektsmelding.internDokumentId,
                 inntektsmeldingHentet = inntektsmelding.hentet,
                 skatteopplysninger = emptyList(),
+                aOrdningsoppslagId = null,
                 aOrdningenHentet = null,
                 omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * BigDecimal(12),
             )
@@ -170,6 +172,7 @@ internal data class Arbeidsgiverinntekt(
                 inntektsmeldingInternDokumentId = null,
                 inntektsmeldingHentet = null,
                 skatteopplysninger = skatteopplysninger,
+                aOrdningsoppslagId = oppslag.id,
                 aOrdningenHentet = oppslag.hentet,
                 omregnetÅrsinntekt = (gjennomsnittPerMåned * BigDecimal(12)).setScale(2, RoundingMode.HALF_UP),
             )
@@ -219,26 +222,12 @@ internal class Sykepengegrunnlag private constructor(
     val sykepengegrunnlag = minOf(beregningsgrunnlag, seksG)
     val er6GBegrenset = beregningsgrunnlag > seksG
 
-    val subsumsjoner =
-        arbeidsgivere
-            .filter { it.inntektskilde == Inntektskilde.A_ORDNINGEN }
-            .map { Subsumsjon.`§ 8-28 ledd 3 bokstav a`(it, skjæringstidspunkt) } +
-            listOfNotNull(
-                Subsumsjon.`§ 8-10 ledd 2 punktum 1`(
-                    erBegrenset = er6GBegrenset,
-                    maksimaltSykepengegrunnlagÅrlig = seksG,
-                    skjæringstidspunkt = skjæringstidspunkt,
-                    beregningsgrunnlagÅrlig = beregningsgrunnlag,
-                ),
-                selvstendig?.let {
-                    Subsumsjon.`§ 8-35 ledd 2`(
-                        årsinntekter = it.årsinntekter,
-                        nåværendeGrunnbeløp = it.anvendtGrunnbeløp,
-                        skjæringstidspunkt = skjæringstidspunkt,
-                        sykepengegrunnlag = sykepengegrunnlag,
-                    )
-                },
-            )
+    val lovreferanser =
+        listOfNotNull(
+            Lovreferanse.`§ 8-28 tredje avsnitt, bokstav a`().takeIf { arbeidsgivere.any { it.inntektskilde == Inntektskilde.A_ORDNINGEN } },
+            Lovreferanse.`§ 8-10 andre avsnitt, første setning`(),
+            selvstendig?.let { Lovreferanse.`§ 8-35 andre avsnitt`() },
+        )
 
     companion object {
         fun fastsett(
@@ -285,100 +274,49 @@ internal class Sykepengegrunnlag private constructor(
     }
 }
 
-internal data class Subsumsjon(
-    val lovverk: String,
-    val versjon: LocalDate,
+internal data class Lovreferanse(
+    val lov: String,
     val paragraf: String,
-    val ledd: Int?,
-    val punktum: Int?,
+    val avsnitt: Int?,
+    val setning: Int?,
     val bokstav: String?,
+    val iKraftFra: LocalDate,
     val utfall: String,
-    val input: Map<String, Any>,
-    val output: Map<String, Any>,
 ) {
     companion object {
-        fun `§ 8-10 ledd 2 punktum 1`(
-            erBegrenset: Boolean,
-            maksimaltSykepengegrunnlagÅrlig: BigDecimal,
-            skjæringstidspunkt: LocalDate,
-            beregningsgrunnlagÅrlig: BigDecimal,
-        ) = Subsumsjon(
-            lovverk = "folketrygdloven",
-            versjon = LocalDate.of(2020, 1, 1),
-            paragraf = "8-10",
-            ledd = 2,
-            punktum = 1,
-            bokstav = null,
-            utfall = "VILKAR_BEREGNET",
-            input =
-                mapOf(
-                    "maksimaltSykepengegrunnlag" to maksimaltSykepengegrunnlagÅrlig,
-                    "skjæringstidspunkt" to skjæringstidspunkt,
-                    "grunnlagForSykepengegrunnlag" to beregningsgrunnlagÅrlig,
-                ),
-            output = mapOf("erBegrenset" to erBegrenset),
-        )
+        fun `§ 8-10 andre avsnitt, første setning`() =
+            Lovreferanse(
+                lov = "folketrygdloven",
+                paragraf = "8-10",
+                avsnitt = 2,
+                setning = 1,
+                bokstav = null,
+                iKraftFra = LocalDate.of(2020, 1, 1),
+                utfall = VILKÅR_BEREGNET,
+            )
 
-        fun `§ 8-28 ledd 3 bokstav a`(
-            arbeidsgiver: Arbeidsgiverinntekt,
-            skjæringstidspunkt: LocalDate,
-        ) = Subsumsjon(
-            lovverk = "folketrygdloven",
-            versjon = LocalDate.of(2019, 1, 1),
-            paragraf = "8-28",
-            ledd = 3,
-            punktum = null,
-            bokstav = "a",
-            utfall = "VILKAR_BEREGNET",
-            input =
-                mapOf(
-                    "organisasjonsnummer" to arbeidsgiver.orgnummer.verdi,
-                    "inntekterSisteTreMåneder" to
-                        arbeidsgiver.skatteopplysninger.map {
-                            mapOf(
-                                "beløp" to it.beløp,
-                                "årMåned" to it.måned.toString(),
-                                "type" to it.type.name,
-                                "fordel" to it.fordel,
-                                "beskrivelse" to it.beskrivelse,
-                            )
-                        },
-                    "skjæringstidspunkt" to skjæringstidspunkt,
-                ),
-            output =
-                mapOf(
-                    "beregnetGrunnlagForSykepengegrunnlagPrÅr" to arbeidsgiver.omregnetÅrsinntekt,
-                    "beregnetGrunnlagForSykepengegrunnlagPrMåned" to arbeidsgiver.omregnetÅrsinntekt.divide(BigDecimal(12), 2, RoundingMode.HALF_UP),
-                ),
-        )
+        fun `§ 8-28 tredje avsnitt, bokstav a`() =
+            Lovreferanse(
+                lov = "folketrygdloven",
+                paragraf = "8-28",
+                avsnitt = 3,
+                setning = null,
+                bokstav = "a",
+                iKraftFra = LocalDate.of(2019, 1, 1),
+                utfall = VILKÅR_BEREGNET,
+            )
 
-        fun `§ 8-35 ledd 2`(
-            årsinntekter: List<Selvstendiginntekt.Årsinntekt>,
-            nåværendeGrunnbeløp: BigDecimal,
-            skjæringstidspunkt: LocalDate,
-            sykepengegrunnlag: BigDecimal,
-        ) = Subsumsjon(
-            lovverk = "folketrygdloven",
-            versjon = LocalDate.of(2018, 12, 20),
-            paragraf = "8-35",
-            ledd = 2,
-            punktum = null,
-            bokstav = null,
-            utfall = "VILKAR_BEREGNET",
-            input =
-                mapOf(
-                    "pensjonsgivendeInntekter" to
-                        årsinntekter.map {
-                            mapOf(
-                                "pensjonsgivendeInntekt" to it.beløp,
-                                "årstall" to it.år,
-                                "gjennomsnittligG" to it.snitt,
-                            )
-                        },
-                    "nåværendeGrunnbeløp" to nåværendeGrunnbeløp,
-                    "skjæringstidspunkt" to skjæringstidspunkt,
-                ),
-            output = mapOf("sykepengegrunnlag" to sykepengegrunnlag),
-        )
+        fun `§ 8-35 andre avsnitt`() =
+            Lovreferanse(
+                lov = "folketrygdloven",
+                paragraf = "8-35",
+                avsnitt = 2,
+                setning = null,
+                bokstav = null,
+                iKraftFra = LocalDate.of(2018, 12, 20),
+                utfall = VILKÅR_BEREGNET,
+            )
+
+        private const val VILKÅR_BEREGNET = "VILKAR_BEREGNET"
     }
 }

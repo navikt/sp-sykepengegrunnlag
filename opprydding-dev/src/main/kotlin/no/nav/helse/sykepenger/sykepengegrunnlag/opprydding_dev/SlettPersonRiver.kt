@@ -45,11 +45,8 @@ internal class SlettPersonRiver(
         fødselsnummer: String,
     ) {
         listOf(
-            SLETT_SUBSUMSJONER,
-            SLETT_SKATTEOPPLYSNINGER,
-            SLETT_ARBEIDSGIVERINNTEKTER,
-            SLETT_SELVSTENDIGINNTEKTER,
             SLETT_SYKEPENGEGRUNNLAG,
+            SLETT_A_ORDNINGSOPPSLAG,
             SLETT_INNTEKTSMELDINGER,
             SLETT_PENSJONSGIVENDE_INNTEKTER,
             SLETT_SØKNADER,
@@ -69,23 +66,10 @@ internal class SlettPersonRiver(
 
     private companion object {
         @Language("PostgreSQL")
-        const val SLETT_SUBSUMSJONER =
-            "DELETE FROM subsumsjon WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
-
-        @Language("PostgreSQL")
-        const val SLETT_SKATTEOPPLYSNINGER =
-            "DELETE FROM skatteopplysning WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
-
-        @Language("PostgreSQL")
-        const val SLETT_ARBEIDSGIVERINNTEKTER =
-            "DELETE FROM arbeidsgiverinntekt WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
-
-        @Language("PostgreSQL")
-        const val SLETT_SELVSTENDIGINNTEKTER =
-            "DELETE FROM selvstendiginntekt WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
-
-        @Language("PostgreSQL")
         const val SLETT_SYKEPENGEGRUNNLAG = "DELETE FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer"
+
+        @Language("PostgreSQL")
+        const val SLETT_A_ORDNINGSOPPSLAG = "DELETE FROM a_ordningsoppslag WHERE fødselsnummer = :fodselsnummer"
 
         @Language("PostgreSQL")
         const val SLETT_INNTEKTSMELDINGER = "DELETE FROM inntektsmelding WHERE fødselsnummer = :fodselsnummer"

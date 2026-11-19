@@ -6,6 +6,7 @@ import no.nav.sykepenger.libs.testing.testdata.lagIdentitetsnummer
 import no.nav.sykepenger.libs.testing.testdata.lagOrganisasjonsnummer
 import org.intellij.lang.annotations.Language
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -115,17 +116,12 @@ internal class SykepengegrunnlagRiverTest {
         assertBeløp("180006", arbeidsgivere[1].omregnetÅrsinntekt)
         assertEquals(setOf(im1, im2), TestDatabase.inntektsmeldinger().map { it.internDokumentId }.toSet())
 
-        val subsumsjon = TestDatabase.subsumsjoner().single()
-        assertEquals(id, subsumsjon.sykepengegrunnlagId)
-        assertEquals("8-10", subsumsjon.paragraf)
-        assertEquals(2, subsumsjon.ledd)
-        assertEquals(1, subsumsjon.punktum)
-        assertEquals("VILKAR_BEREGNET", subsumsjon.utfall)
-        assertJsonEquals(
-            """{"maksimaltSykepengegrunnlag": 780960.0, "skjæringstidspunkt": "2026-01-01", "grunnlagForSykepengegrunnlag": 420006.0}""",
-            subsumsjon.input,
+        assertBeløp("780960", grunnlag.seksG)
+        assertFalse(grunnlag.er6GBegrenset)
+        assertEquals(
+            listOf(TestDatabase.Lovreferanserad(id, "folketrygdloven", "8-10", 2, 1, null, LocalDate.of(2020, 1, 1), "VILKAR_BEREGNET")),
+            TestDatabase.lovreferanser(),
         )
-        assertJsonEquals("""{"erBegrenset": false}""", subsumsjon.output)
     }
 
     @Test
@@ -138,12 +134,8 @@ internal class SykepengegrunnlagRiverTest {
         val grunnlag = TestDatabase.grunnlag().single()
         assertBeløp("840000", grunnlag.beregningsgrunnlag)
         assertBeløp("780960", grunnlag.sykepengegrunnlag)
-        val subsumsjon = TestDatabase.subsumsjoner().single()
-        assertJsonEquals(
-            """{"maksimaltSykepengegrunnlag": 780960.0, "skjæringstidspunkt": "2026-01-01", "grunnlagForSykepengegrunnlag": 840000.0}""",
-            subsumsjon.input,
-        )
-        assertJsonEquals("""{"erBegrenset": true}""", subsumsjon.output)
+        assertBeløp("780960", grunnlag.seksG)
+        assertTrue(grunnlag.er6GBegrenset)
     }
 
     @Test
@@ -156,7 +148,7 @@ internal class SykepengegrunnlagRiverTest {
         val grunnlag = TestDatabase.grunnlag().single()
         assertBeløp("599148", grunnlag.beregningsgrunnlag)
         assertBeløp("599148", grunnlag.sykepengegrunnlag)
-        assertJsonEquals("""{"erBegrenset": false}""", TestDatabase.subsumsjoner().single().output)
+        assertFalse(grunnlag.er6GBegrenset)
     }
 
     @Test
@@ -337,6 +329,34 @@ internal class SykepengegrunnlagRiverTest {
     }
 
     @Test
+    fun `lagrer hele svaret fra a-ordningen, og grunnlaget peker på oppslaget`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        listOf(10, 11, 12).forEach { måned ->
+            inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, måned), "30000")
+            inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, måned), "10000")
+        }
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A1))), FØDSELSNUMMER)
+
+        val oppslag = TestDatabase.aOrdningsoppslagrader().single()
+        assertEquals(FØDSELSNUMMER, oppslag.fødselsnummer)
+        assertEquals(YearMonth.of(2025, 10), oppslag.førsteMåned)
+        assertEquals(YearMonth.of(2025, 12), oppslag.sisteMåned)
+        assertEquals("8-28Sykepenger", oppslag.ainntektsfilter)
+        val virksomheterISvaret =
+            objectMapper
+                .readTree(oppslag.svar)
+                .path("arbeidsInntektMaaned")
+                .flatMap { it.path("arbeidsInntektInformasjon").path("inntektListe") }
+                .map { it.path("virksomhet").path("identifikator").asString() }
+        assertEquals(setOf(A1, A2), virksomheterISvaret.toSet())
+        assertEquals(6, virksomheterISvaret.size)
+
+        assertEquals(listOf(oppslag.id), TestDatabase.arbeidsgivere().map { it.aOrdningsoppslagId })
+        assertEquals(setOf(A1), TestDatabase.skatteopplysninger().map { it.orgnummer }.toSet())
+    }
+
+    @Test
     fun `henter a-ordningen én gang når flere arbeidsgivere har inntektskilden A_ORDNINGEN, og begrenser grunnlaget til 6G`() {
         val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
         listOf(10, 11, 12).forEach { måned ->
@@ -404,7 +424,7 @@ internal class SykepengegrunnlagRiverTest {
     }
 
     @Test
-    fun `lagrer subsumsjonen for § 8-28 tredje ledd bokstav a for arbeidsgivere med inntekt fra a-ordningen`() {
+    fun `lagrer lovreferansen til § 8-28 tredje avsnitt bokstav a når en arbeidsgiver har inntekt fra a-ordningen`() {
         val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
         val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1, beregnetInntekt = "30000")
         inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, 11), "10000")
@@ -420,25 +440,13 @@ internal class SykepengegrunnlagRiverTest {
                     .path("id")
                     .asString(),
             )
-        val subsumsjon = TestDatabase.subsumsjoner().single { it.paragraf == "8-28" }
-        assertEquals(id, subsumsjon.sykepengegrunnlagId)
-        assertEquals(3, subsumsjon.ledd)
-        assertEquals("VILKAR_BEREGNET", subsumsjon.utfall)
-        assertJsonEquals(
-            """
-            {
-              "organisasjonsnummer": "$A2",
-              "inntekterSisteTreMåneder": [
-                {"beløp": 10000, "årMåned": "2025-11", "type": "LØNNSINNTEKT", "fordel": "kontantytelse", "beskrivelse": "fastloenn"},
-                {"beløp": 12500, "årMåned": "2025-12", "type": "YTELSE_FRA_OFFENTLIGE", "fordel": "kontantytelse", "beskrivelse": "sykepenger"}
-              ],
-              "skjæringstidspunkt": "2026-01-01"
-            }
-            """,
-            subsumsjon.input,
+        assertEquals(
+            listOf(
+                TestDatabase.Lovreferanserad(id, "folketrygdloven", "8-28", 3, null, "a", LocalDate.of(2019, 1, 1), "VILKAR_BEREGNET"),
+                TestDatabase.Lovreferanserad(id, "folketrygdloven", "8-10", 2, 1, null, LocalDate.of(2020, 1, 1), "VILKAR_BEREGNET"),
+            ),
+            TestDatabase.lovreferanser(),
         )
-        assertJsonEquals("""{"beregnetGrunnlagForSykepengegrunnlagPrÅr": 90000.00, "beregnetGrunnlagForSykepengegrunnlagPrMåned": 7500.00}""", subsumsjon.output)
-        assertEquals(listOf("8-28", "8-10"), TestDatabase.subsumsjoner().map { it.paragraf })
     }
 
     @Test
@@ -564,26 +572,24 @@ internal class SykepengegrunnlagRiverTest {
             TestDatabase.pensjonsgivendeInntekter(),
         )
 
-        val subsumsjon = TestDatabase.subsumsjoner().single { it.paragraf == "8-35" }
-        assertEquals(id, subsumsjon.sykepengegrunnlagId)
-        assertEquals(2, subsumsjon.ledd)
-        assertEquals("VILKAR_BEREGNET", subsumsjon.utfall)
         assertJsonEquals(
             """
-            {
-              "pensjonsgivendeInntekter": [
-                {"pensjonsgivendeInntekt": 500000, "årstall": 2016, "gjennomsnittligG": 91740},
-                {"pensjonsgivendeInntekt": 450000, "årstall": 2015, "gjennomsnittligG": 89502},
-                {"pensjonsgivendeInntekt": 380000, "årstall": 2014, "gjennomsnittligG": 87328}
-              ],
-              "nåværendeGrunnbeløp": 96883.0,
-              "skjæringstidspunkt": "2018-06-16"
-            }
+            [
+              {"inntektsår": 2016, "beløp": 500000, "gjennomsnittligG": 91740},
+              {"inntektsår": 2015, "beløp": 450000, "gjennomsnittligG": 89502},
+              {"inntektsår": 2014, "beløp": 380000, "gjennomsnittligG": 87328}
+            ]
             """,
-            subsumsjon.input,
+            selvstendig.pensjonsgivendeInntekter,
         )
-        assertJsonEquals("""{"sykepengegrunnlag": 478906}""", subsumsjon.output)
-        assertJsonEquals("""{"erBegrenset": false}""", TestDatabase.subsumsjoner().single { it.paragraf == "8-10" }.output)
+        assertFalse(grunnlag.er6GBegrenset)
+        assertEquals(
+            listOf(
+                TestDatabase.Lovreferanserad(id, "folketrygdloven", "8-10", 2, 1, null, LocalDate.of(2020, 1, 1), "VILKAR_BEREGNET"),
+                TestDatabase.Lovreferanserad(id, "folketrygdloven", "8-35", 2, null, null, LocalDate.of(2018, 12, 20), "VILKAR_BEREGNET"),
+            ),
+            TestDatabase.lovreferanser(),
+        )
     }
 
     @ParameterizedTest(name = "pensjonsgivende inntekter {0}, {1} og {2} gir fastsatt årsinntekt {3}, beregningsgrunnlag {4} og sykepengegrunnlag {5}")
@@ -618,7 +624,6 @@ internal class SykepengegrunnlagRiverTest {
         assertBeløp(beregningsgrunnlag, grunnlag.beregningsgrunnlag)
         assertBeløp(sykepengegrunnlag, grunnlag.sykepengegrunnlag)
         assertBeløp(fastsattÅrsinntekt, TestDatabase.selvstendiginntekter().single().fastsattÅrsinntekt)
-        assertJsonEquals("""{"sykepengegrunnlag": $sykepengegrunnlag}""", TestDatabase.subsumsjoner().single { it.paragraf == "8-35" }.output)
     }
 
     @Test

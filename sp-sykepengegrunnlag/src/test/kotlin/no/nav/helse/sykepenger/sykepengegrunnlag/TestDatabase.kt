@@ -16,7 +16,7 @@ internal object TestDatabase {
 
     val dataSource: DataSource = database.dataSource
 
-    fun tøm() = database.tøm("subsumsjon", "skatteopplysning", "arbeidsgiverinntekt", "selvstendiginntekt", "sykepengegrunnlag", "inntektsmelding", "pensjonsgivende_inntekt", "soknad")
+    fun tøm() = database.tøm("sykepengegrunnlag", "a_ordningsoppslag", "inntektsmelding", "pensjonsgivende_inntekt", "soknad")
 
     data class Grunnlagsrad(
         val id: UUID,
@@ -27,6 +27,8 @@ internal object TestDatabase {
         val beregningsgrunnlag: BigDecimal,
         val sykepengegrunnlag: BigDecimal,
         val grunnbeløp: BigDecimal,
+        val seksG: BigDecimal,
+        val er6GBegrenset: Boolean,
         val opprettet: Instant,
     )
 
@@ -36,6 +38,16 @@ internal object TestDatabase {
         val inntektskilde: String,
         val inntektsmeldingInternDokumentId: UUID?,
         val omregnetÅrsinntekt: BigDecimal,
+        val aOrdningsoppslagId: UUID? = null,
+    )
+
+    data class AOrdningsoppslagrad(
+        val id: UUID,
+        val fødselsnummer: String,
+        val førsteMåned: YearMonth,
+        val sisteMåned: YearMonth,
+        val ainntektsfilter: String,
+        val svar: String,
     )
 
     data class Skatteopplysningsrad(
@@ -60,6 +72,7 @@ internal object TestDatabase {
         val sykepengegrunnlagId: UUID,
         val søknadInternDokumentId: UUID,
         val søknadHentet: Instant,
+        val pensjonsgivendeInntekter: String,
         val fastsattÅrsinntekt: BigDecimal,
     )
 
@@ -78,18 +91,30 @@ internal object TestDatabase {
         val næringsinntektFraFiskeFangstEllerFamiliebarnehage: Int,
     )
 
-    data class Subsumsjonsrad(
+    data class Lovreferanserad(
         val sykepengegrunnlagId: UUID,
+        val lov: String,
         val paragraf: String,
-        val ledd: Int?,
-        val punktum: Int?,
+        val avsnitt: Int?,
+        val setning: Int?,
+        val bokstav: String?,
+        val iKraftFra: LocalDate,
         val utfall: String,
-        val input: String,
-        val output: String,
     )
 
     fun grunnlag(): List<Grunnlagsrad> =
-        liste("SELECT * FROM sykepengegrunnlag ORDER BY opprettet") { row ->
+        liste(
+            """
+            SELECT id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, opprettet,
+                   (data ->> 'beregningsgrunnlag')::numeric AS beregningsgrunnlag,
+                   (data ->> 'sykepengegrunnlag')::numeric AS sykepengegrunnlag,
+                   (data ->> 'grunnbeløp')::numeric AS grunnbeløp,
+                   (data ->> 'seksG')::numeric AS seks_g,
+                   (data ->> 'er6GBegrenset')::boolean AS er_6g_begrenset
+            FROM sykepengegrunnlag
+            ORDER BY opprettet
+            """,
+        ) { row ->
             Grunnlagsrad(
                 id = row.uuid("id"),
                 fødselsnummer = row.string("fødselsnummer"),
@@ -99,27 +124,38 @@ internal object TestDatabase {
                 beregningsgrunnlag = row.bigDecimal("beregningsgrunnlag"),
                 sykepengegrunnlag = row.bigDecimal("sykepengegrunnlag"),
                 grunnbeløp = row.bigDecimal("grunnbeløp"),
+                seksG = row.bigDecimal("seks_g"),
+                er6GBegrenset = row.boolean("er_6g_begrenset"),
                 opprettet = row.instant("opprettet"),
             )
         }
 
     fun arbeidsgivere(): List<Arbeidsgiverrad> =
-        liste("SELECT * FROM arbeidsgiverinntekt ORDER BY løpenummer") { row ->
+        liste("SELECT * FROM $ARBEIDSGIVERE a ORDER BY opprettet, rekkefølge") { row ->
             Arbeidsgiverrad(
                 sykepengegrunnlagId = row.uuid("sykepengegrunnlag_id"),
                 orgnummer = row.string("orgnummer"),
                 inntektskilde = row.string("inntektskilde"),
                 inntektsmeldingInternDokumentId = row.uuidOrNull("inntektsmelding_intern_dokument_id"),
                 omregnetÅrsinntekt = row.bigDecimal("omregnet_årsinntekt"),
+                aOrdningsoppslagId = row.uuidOrNull("a_ordningsoppslag_id"),
             )
         }
 
     fun skatteopplysninger(): List<Skatteopplysningsrad> =
-        liste("SELECT * FROM skatteopplysning ORDER BY løpenummer") { row ->
+        liste(
+            """
+            SELECT a.sykepengegrunnlag_id, a.orgnummer, s.*
+            FROM $ARBEIDSGIVERE a,
+                 ROWS FROM (jsonb_to_recordset(a.skatteopplysninger) AS (måned TEXT, beløp NUMERIC, type TEXT, fordel TEXT, beskrivelse TEXT))
+                     WITH ORDINALITY AS s(måned, beløp, type, fordel, beskrivelse, rekkefølge)
+            ORDER BY a.opprettet, a.rekkefølge, s.rekkefølge
+            """,
+        ) { row ->
             Skatteopplysningsrad(
                 sykepengegrunnlagId = row.uuid("sykepengegrunnlag_id"),
                 orgnummer = row.string("orgnummer"),
-                måned = YearMonth.from(row.localDate("måned")),
+                måned = YearMonth.parse(row.string("måned")),
                 beløp = row.bigDecimal("beløp"),
                 type = row.string("type"),
                 fordel = row.string("fordel"),
@@ -128,8 +164,20 @@ internal object TestDatabase {
         }
 
     fun aOrdningsoppslag(): List<Pair<UUID, String>> =
-        liste("SELECT sykepengegrunnlag_id, orgnummer FROM arbeidsgiverinntekt WHERE a_ordningen_hentet IS NOT NULL ORDER BY løpenummer") { row ->
+        liste("SELECT sykepengegrunnlag_id, orgnummer FROM $ARBEIDSGIVERE a WHERE a_ordningen_hentet IS NOT NULL ORDER BY opprettet, rekkefølge") { row ->
             row.uuid("sykepengegrunnlag_id") to row.string("orgnummer")
+        }
+
+    fun aOrdningsoppslagrader(): List<AOrdningsoppslagrad> =
+        liste("SELECT * FROM a_ordningsoppslag ORDER BY hentet") { row ->
+            AOrdningsoppslagrad(
+                id = row.uuid("id"),
+                fødselsnummer = row.string("fødselsnummer"),
+                førsteMåned = YearMonth.from(row.localDate("første_måned")),
+                sisteMåned = YearMonth.from(row.localDate("siste_måned")),
+                ainntektsfilter = row.string("ainntektsfilter"),
+                svar = row.string("svar"),
+            )
         }
 
     fun inntektsmeldinger(): List<Inntektsmeldingrad> =
@@ -144,16 +192,27 @@ internal object TestDatabase {
         }
 
     fun inntektsmeldingoppslag(): List<Pair<UUID, Instant>> =
-        liste("SELECT sykepengegrunnlag_id, inntektsmelding_hentet FROM arbeidsgiverinntekt ORDER BY løpenummer") { row ->
-            row.uuid("sykepengegrunnlag_id") to row.instant("inntektsmelding_hentet")
+        liste("SELECT sykepengegrunnlag_id, inntektsmelding_hentet FROM $ARBEIDSGIVERE a ORDER BY opprettet, rekkefølge") { row ->
+            row.uuid("sykepengegrunnlag_id") to Instant.parse(row.string("inntektsmelding_hentet"))
         }
 
     fun selvstendiginntekter(): List<Selvstendigrad> =
-        liste("SELECT * FROM selvstendiginntekt ORDER BY søknad_hentet") { row ->
+        liste(
+            """
+            SELECT id, (data -> 'selvstendig' ->> 'søknadInternDokumentId')::uuid AS søknad_intern_dokument_id,
+                   data -> 'selvstendig' ->> 'søknadHentet' AS søknad_hentet,
+                   data -> 'selvstendig' -> 'pensjonsgivendeInntekter' AS pensjonsgivende_inntekter,
+                   (data -> 'selvstendig' ->> 'fastsattÅrsinntekt')::numeric AS fastsatt_årsinntekt
+            FROM sykepengegrunnlag
+            WHERE jsonb_typeof(data -> 'selvstendig') = 'object'
+            ORDER BY opprettet
+            """,
+        ) { row ->
             Selvstendigrad(
-                sykepengegrunnlagId = row.uuid("sykepengegrunnlag_id"),
+                sykepengegrunnlagId = row.uuid("id"),
                 søknadInternDokumentId = row.uuid("søknad_intern_dokument_id"),
-                søknadHentet = row.instant("søknad_hentet"),
+                søknadHentet = Instant.parse(row.string("søknad_hentet")),
+                pensjonsgivendeInntekter = row.string("pensjonsgivende_inntekter"),
                 fastsattÅrsinntekt = row.bigDecimal("fastsatt_årsinntekt"),
             )
         }
@@ -176,18 +235,41 @@ internal object TestDatabase {
             )
         }
 
-    fun subsumsjoner(): List<Subsumsjonsrad> =
-        liste("SELECT * FROM subsumsjon ORDER BY løpenummer") { row ->
-            Subsumsjonsrad(
-                sykepengegrunnlagId = row.uuid("sykepengegrunnlag_id"),
+    fun lovreferanser(): List<Lovreferanserad> =
+        liste(
+            """
+            SELECT g.id, l.*
+            FROM sykepengegrunnlag g,
+                 ROWS FROM (jsonb_to_recordset(g.data -> 'lovreferanser')
+                     AS (lov TEXT, paragraf TEXT, avsnitt INT, setning INT, bokstav TEXT, "iKraftFra" DATE, utfall TEXT))
+                     WITH ORDINALITY AS l(lov, paragraf, avsnitt, setning, bokstav, i_kraft_fra, utfall, rekkefølge)
+            ORDER BY g.opprettet, l.rekkefølge
+            """,
+        ) { row ->
+            Lovreferanserad(
+                sykepengegrunnlagId = row.uuid("id"),
+                lov = row.string("lov"),
                 paragraf = row.string("paragraf"),
-                ledd = row.intOrNull("ledd"),
-                punktum = row.intOrNull("punktum"),
+                avsnitt = row.intOrNull("avsnitt"),
+                setning = row.intOrNull("setning"),
+                bokstav = row.stringOrNull("bokstav"),
+                iKraftFra = row.localDate("i_kraft_fra"),
                 utfall = row.string("utfall"),
-                input = row.string("input"),
-                output = row.string("output"),
             )
         }
+
+    private const val ARBEIDSGIVERE = """
+        (SELECT g.id AS sykepengegrunnlag_id, g.opprettet, e.rekkefølge, a.orgnummer, a.inntektskilde,
+                a."inntektsmeldingInternDokumentId" AS inntektsmelding_intern_dokument_id,
+                a."inntektsmeldingHentet" AS inntektsmelding_hentet, a."aOrdningenHentet" AS a_ordningen_hentet,
+                a."aOrdningsoppslagId" AS a_ordningsoppslag_id,
+                a."omregnetÅrsinntekt" AS omregnet_årsinntekt, a.skatteopplysninger
+         FROM sykepengegrunnlag g,
+              jsonb_array_elements(g.data -> 'arbeidsgivere') WITH ORDINALITY AS e(arbeidsgiver, rekkefølge),
+              jsonb_to_record(e.arbeidsgiver) AS a(orgnummer TEXT, inntektskilde TEXT, "inntektsmeldingInternDokumentId" UUID,
+                                                   "inntektsmeldingHentet" TEXT, "aOrdningenHentet" TEXT, "aOrdningsoppslagId" UUID, "omregnetÅrsinntekt" NUMERIC,
+                                                   skatteopplysninger JSONB))
+    """
 
     private fun <T> liste(
         @Language("PostgreSQL") sql: String,

@@ -28,7 +28,7 @@ internal class InntektskomponentenClient(
         val body =
             mapOf(
                 "ident" to mapOf("identifikator" to fødselsnummer.verdi, "aktoerType" to "NATURLIG_IDENT"),
-                "ainntektsfilter" to "8-28Sykepenger",
+                "ainntektsfilter" to AINNTEKTSFILTER,
                 "formaal" to "Sykepenger",
                 "maanedFom" to måneder.start.toString(),
                 "maanedTom" to måneder.endInclusive.toString(),
@@ -48,9 +48,10 @@ internal class InntektskomponentenClient(
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         check(response.statusCode() == 200) { "Inntektskomponenten svarte HTTP ${response.statusCode()}" }
         val hentet = Instant.now()
+        val svar = response.body()
         val inntekter =
             objectMapper
-                .readTree(response.body())
+                .readTree(svar)
                 .path("arbeidsInntektMaaned")
                 .toList()
                 .flatMap { måned ->
@@ -61,7 +62,14 @@ internal class InntektskomponentenClient(
                         .toList()
                         .map { it.tilInntekt(årMåned) }
                 }
-        return AOrdningsoppslag(inntekter, hentet)
+        return AOrdningsoppslag(
+            id = AOrdningsoppslag.Id(UUID.randomUUID()),
+            måneder = måneder,
+            ainntektsfilter = AINNTEKTSFILTER,
+            inntekter = inntekter,
+            svar = svar,
+            hentet = hentet,
+        )
     }
 
     private fun JsonNode.tilInntekt(måned: YearMonth): AOrdningsinntekt {
@@ -82,6 +90,7 @@ internal class InntektskomponentenClient(
 
     companion object {
         private val objectMapper = jacksonObjectMapper()
+        private const val AINNTEKTSFILTER = "8-28Sykepenger"
 
         fun fraMiljø(
             env: Map<String, String>,
@@ -95,9 +104,18 @@ internal class InntektskomponentenClient(
 }
 
 internal data class AOrdningsoppslag(
+    val id: Id,
+    val måneder: ClosedRange<YearMonth>,
+    val ainntektsfilter: String,
     val inntekter: List<AOrdningsinntekt>,
+    val svar: String,
     val hentet: Instant,
-)
+) {
+    @JvmInline
+    value class Id(
+        val uuid: UUID,
+    )
+}
 
 internal data class AOrdningsinntekt(
     val virksomhet: String,

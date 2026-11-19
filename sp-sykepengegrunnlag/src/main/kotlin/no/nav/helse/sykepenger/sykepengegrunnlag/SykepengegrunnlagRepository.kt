@@ -4,5 +4,6 @@ internal interface SykepengegrunnlagRepository {
     fun lagre(
         grunnlag: Sykepengegrunnlag,
         inntektsmeldinger: List<Inntektsmelding>,
+        aOrdningsoppslag: AOrdningsoppslag?,
     )
 }

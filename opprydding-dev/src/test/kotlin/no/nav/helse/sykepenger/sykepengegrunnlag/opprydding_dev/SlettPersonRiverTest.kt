@@ -45,7 +45,7 @@ internal class SlettPersonRiverTest {
     }
 
     @Test
-    fun `sletter grunnlagene, inntektene, skatteopplysningene, subsumsjonene, inntektsmeldingene og søknadene til personen`() {
+    fun `sletter grunnlagene, inntektsmeldingene, oppslagene i a-ordningen og søknadene til personen`() {
         val fødselsnummer = lagIdentitetsnummer()
         val annenPerson = lagIdentitetsnummer()
         lagreGrunnlag(fødselsnummer)
@@ -58,11 +58,8 @@ internal class SlettPersonRiverTest {
         assertEquals(
             mapOf(
                 "sykepengegrunnlag" to 0,
-                "arbeidsgiverinntekt" to 0,
-                "skatteopplysning" to 0,
-                "selvstendiginntekt" to 0,
-                "subsumsjon" to 0,
                 "inntektsmelding" to 0,
+                "a_ordningsoppslag" to 0,
                 "soknad" to 0,
                 "pensjonsgivende_inntekt" to 0,
             ),
@@ -71,11 +68,8 @@ internal class SlettPersonRiverTest {
         assertEquals(
             mapOf(
                 "sykepengegrunnlag" to 2,
-                "arbeidsgiverinntekt" to 2,
-                "skatteopplysning" to 1,
-                "selvstendiginntekt" to 1,
-                "subsumsjon" to 1,
                 "inntektsmelding" to 1,
+                "a_ordningsoppslag" to 1,
                 "soknad" to 1,
                 "pensjonsgivende_inntekt" to 1,
             ),
@@ -95,14 +89,11 @@ internal class SlettPersonRiverTest {
                 INSERT INTO pensjonsgivende_inntekt (søknad_intern_dokument_id, år, er_ferdig_lignet, lønnsinntekt, lønnsinntekt_bare_pensjonsdel,
                                                      næringsinntekt, næringsinntekt_fra_fiske_fangst_eller_familiebarnehage)
                 SELECT søknad_intern_dokument_id, 2025, true, 0, 0, 500000, 0 FROM soknad
-            ), grunnlag AS (
-                INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, beregningsgrunnlag,
-                                               sykepengegrunnlag, grunnbeløp)
-                VALUES (gen_random_uuid(), :fodselsnummer, '2026-01-01', gen_random_uuid(), 'VILKÅRSPRØVING', 500000, 500000, 130160)
-                RETURNING id
             )
-            INSERT INTO selvstendiginntekt (sykepengegrunnlag_id, søknad_intern_dokument_id, søknad_hentet, fastsatt_årsinntekt)
-            SELECT grunnlag.id, soknad.søknad_intern_dokument_id, now(), 500000 FROM grunnlag, soknad
+            INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data)
+            SELECT gen_random_uuid(), :fodselsnummer, '2026-01-01', gen_random_uuid(), 'VILKÅRSPRØVING',
+                   jsonb_build_object('selvstendig', jsonb_build_object('søknadInternDokumentId', søknad_intern_dokument_id))
+            FROM soknad
             """
         sessionOf(Database.dataSource).use {
             it.run(queryOf(sql, mapOf("fodselsnummer" to fødselsnummer)).asUpdate)
@@ -117,24 +108,14 @@ internal class SlettPersonRiverTest {
                 INSERT INTO inntektsmelding (intern_dokument_id, inntektsmelding_id, fødselsnummer, orgnummer, beregnet_inntekt, mottatt_dato)
                 VALUES (gen_random_uuid(), gen_random_uuid(), :fodselsnummer, '987654321', 30000, now())
                 RETURNING intern_dokument_id
-            ), grunnlag AS (
-                INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, beregningsgrunnlag,
-                                               sykepengegrunnlag, grunnbeløp)
-                VALUES (gen_random_uuid(), :fodselsnummer, '2026-01-01', gen_random_uuid(), 'VILKÅRSPRØVING', 360000, 360000, 130160)
-                RETURNING id
-            ), arbeidsgiver AS (
-                INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_intern_dokument_id, inntektsmelding_hentet, omregnet_årsinntekt)
-                SELECT grunnlag.id, '987654321', 'INNTEKTSMELDING', inntektsmelding.intern_dokument_id, now(), 360000 FROM grunnlag, inntektsmelding
             ), a_ordningen AS (
-                INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, a_ordningen_hentet, omregnet_årsinntekt)
-                SELECT grunnlag.id, '987654322', 'A_ORDNINGEN', now(), 120000 FROM grunnlag
-                RETURNING sykepengegrunnlag_id, orgnummer
-            ), skatteopplysning AS (
-                INSERT INTO skatteopplysning (sykepengegrunnlag_id, orgnummer, måned, beløp, type, fordel, beskrivelse)
-                SELECT sykepengegrunnlag_id, orgnummer, '2025-12-01', 10000, 'LØNNSINNTEKT', 'kontantytelse', 'fastloenn' FROM a_ordningen
+                INSERT INTO a_ordningsoppslag (id, fødselsnummer, første_måned, siste_måned, ainntektsfilter, hentet, svar)
+                VALUES (gen_random_uuid(), :fodselsnummer, '2025-10-01', '2025-12-01', '8-28Sykepenger', now(), '{}')
             )
-            INSERT INTO subsumsjon (sykepengegrunnlag_id, lovverk, versjon, paragraf, ledd, punktum, utfall, input, output)
-            SELECT id, 'folketrygdloven', '2020-01-01', '8-10', 2, 1, 'VILKAR_BEREGNET', '{}', '{}' FROM grunnlag
+            INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data)
+            SELECT gen_random_uuid(), :fodselsnummer, '2026-01-01', gen_random_uuid(), 'VILKÅRSPRØVING',
+                   jsonb_build_object('arbeidsgivere', jsonb_build_array(jsonb_build_object('inntektsmeldingInternDokumentId', intern_dokument_id)))
+            FROM inntektsmelding
             """
         sessionOf(Database.dataSource).use {
             it.run(queryOf(sql, mapOf("fodselsnummer" to fødselsnummer)).asUpdate)
@@ -144,27 +125,8 @@ internal class SlettPersonRiverTest {
     private fun antallRader(fødselsnummer: String): Map<String, Int> =
         mapOf(
             "sykepengegrunnlag" to antall("SELECT COUNT(*) FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer", fødselsnummer),
-            "arbeidsgiverinntekt" to
-                antall(
-                    "SELECT COUNT(*) FROM arbeidsgiverinntekt a JOIN sykepengegrunnlag s ON s.id = a.sykepengegrunnlag_id WHERE s.fødselsnummer = :fodselsnummer",
-                    fødselsnummer,
-                ),
-            "skatteopplysning" to
-                antall(
-                    "SELECT COUNT(*) FROM skatteopplysning o JOIN sykepengegrunnlag s ON s.id = o.sykepengegrunnlag_id WHERE s.fødselsnummer = :fodselsnummer",
-                    fødselsnummer,
-                ),
-            "selvstendiginntekt" to
-                antall(
-                    "SELECT COUNT(*) FROM selvstendiginntekt i JOIN sykepengegrunnlag s ON s.id = i.sykepengegrunnlag_id WHERE s.fødselsnummer = :fodselsnummer",
-                    fødselsnummer,
-                ),
-            "subsumsjon" to
-                antall(
-                    "SELECT COUNT(*) FROM subsumsjon u JOIN sykepengegrunnlag s ON s.id = u.sykepengegrunnlag_id WHERE s.fødselsnummer = :fodselsnummer",
-                    fødselsnummer,
-                ),
             "inntektsmelding" to antall("SELECT COUNT(*) FROM inntektsmelding WHERE fødselsnummer = :fodselsnummer", fødselsnummer),
+            "a_ordningsoppslag" to antall("SELECT COUNT(*) FROM a_ordningsoppslag WHERE fødselsnummer = :fodselsnummer", fødselsnummer),
             "soknad" to antall("SELECT COUNT(*) FROM soknad WHERE fødselsnummer = :fodselsnummer", fødselsnummer),
             "pensjonsgivende_inntekt" to
                 antall(
