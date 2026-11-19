@@ -17,15 +17,17 @@ import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.UUID
 
 internal class SykepengegrunnlagRiverTest {
     private val spedisjon = FakeSpedisjon()
     private val rettighetskategori = FakeRettighetskategori()
+    private val inntektskomponenten = FakeInntektskomponenten()
     private val rapid =
         TestRapid().apply {
-            registrerRivers(TestDatabase.dataSource, spedisjon.client, rettighetskategori.client)
+            registrerRivers(TestDatabase.dataSource, spedisjon.client, rettighetskategori.client, inntektskomponenten.client)
         }
 
     @BeforeEach
@@ -246,18 +248,232 @@ internal class SykepengegrunnlagRiverTest {
     }
 
     @Test
-    fun `svarer ikke ennå når en arbeidsgiver har inntektskilden A_ORDNINGEN`() {
+    fun `fastsetter grunnlaget fra a-ordningen etter § 8-28`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 10), "30000")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 11), "31000.50", fordel = "kontantytelse", beskrivelse = "fastloenn")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 12), "2000", inntektType = "YTELSE_FRA_OFFENTLIGE", beskrivelse = "sykepenger")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 12), "29000")
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A1))), FØDSELSNUMMER)
+
+        assertEquals(
+            listOf(
+                FakeInntektskomponenten.Kall(
+                    fødselsnummer = FØDSELSNUMMER,
+                    aktoerType = "NATURLIG_IDENT",
+                    ainntektsfilter = "8-28Sykepenger",
+                    formaal = "Sykepenger",
+                    maanedFom = YearMonth.of(2025, 10),
+                    maanedTom = YearMonth.of(2025, 12),
+                    authorization = "Bearer token",
+                ),
+            ),
+            inntektskomponenten.kall,
+        )
+        val id =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(0)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
+        val grunnlag = TestDatabase.grunnlag().single()
+        assertEquals(id, grunnlag.id)
+        assertBeløp("368002", grunnlag.beregningsgrunnlag)
+        assertBeløp("368002", grunnlag.sykepengegrunnlag)
+
+        val arbeidsgiver = TestDatabase.arbeidsgivere().single()
+        assertEquals("A_ORDNINGEN", arbeidsgiver.inntektskilde)
+        assertEquals(null, arbeidsgiver.inntektsmeldingInternDokumentId)
+        assertBeløp("368002", arbeidsgiver.omregnetÅrsinntekt)
+        assertTrue(TestDatabase.aOrdningsoppslag().single().let { it.first == id && it.second == A1 })
+        assertEquals(
+            listOf(
+                TestDatabase.Skatteopplysningsrad(id, A1, YearMonth.of(2025, 10), BigDecimal("30000.00"), "LØNNSINNTEKT", "kontantytelse", "fastloenn"),
+                TestDatabase.Skatteopplysningsrad(id, A1, YearMonth.of(2025, 11), BigDecimal("31000.50"), "LØNNSINNTEKT", "kontantytelse", "fastloenn"),
+                TestDatabase.Skatteopplysningsrad(id, A1, YearMonth.of(2025, 12), BigDecimal("2000.00"), "YTELSE_FRA_OFFENTLIGE", "kontantytelse", "sykepenger"),
+                TestDatabase.Skatteopplysningsrad(id, A1, YearMonth.of(2025, 12), BigDecimal("29000.00"), "LØNNSINNTEKT", "kontantytelse", "fastloenn"),
+            ),
+            TestDatabase.skatteopplysninger(),
+        )
+        assertEquals(emptyList<TestDatabase.Inntektsmeldingrad>(), TestDatabase.inntektsmeldinger())
+    }
+
+    @Test
+    fun `fastsetter grunnlaget med inntektsmelding og ghost-arbeidsforhold fra a-ordningen`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1, beregnetInntekt = "30000")
+        listOf(10, 11, 12).forEach { måned ->
+            inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, måned), "99999")
+            inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, måned), "10000")
+            inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A3, YearMonth.of(2025, måned), "50000")
+        }
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im), lagAOrdningen(A2))), FØDSELSNUMMER)
+
+        val id =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(0)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
+        val grunnlag = TestDatabase.grunnlag().single()
+        assertEquals(id, grunnlag.id)
+        assertBeløp("480000", grunnlag.beregningsgrunnlag)
+        assertBeløp("480000", grunnlag.sykepengegrunnlag)
+        val arbeidsgivere = TestDatabase.arbeidsgivere()
+        assertEquals(listOf(A1 to "INNTEKTSMELDING", A2 to "A_ORDNINGEN"), arbeidsgivere.map { it.orgnummer to it.inntektskilde })
+        assertBeløp("360000", arbeidsgivere[0].omregnetÅrsinntekt)
+        assertBeløp("120000", arbeidsgivere[1].omregnetÅrsinntekt)
+        assertEquals(listOf(id to A2), TestDatabase.aOrdningsoppslag())
+        assertEquals(setOf(A2), TestDatabase.skatteopplysninger().map { it.orgnummer }.toSet())
+        assertEquals(3, TestDatabase.skatteopplysninger().size)
+        assertEquals(listOf(im), TestDatabase.inntektsmeldinger().map { it.internDokumentId })
+        assertEquals(1, inntektskomponenten.kall.size)
+    }
+
+    @Test
+    fun `henter a-ordningen én gang når flere arbeidsgivere har inntektskilden A_ORDNINGEN, og begrenser grunnlaget til 6G`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        listOf(10, 11, 12).forEach { måned ->
+            inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, måned), "40000")
+            inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, måned), "35000")
+        }
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A1), lagAOrdningen(A2))), FØDSELSNUMMER)
+
+        assertEquals(1, inntektskomponenten.kall.size)
+        val grunnlag = TestDatabase.grunnlag().single()
+        assertBeløp("900000", grunnlag.beregningsgrunnlag)
+        assertBeløp("780960", grunnlag.sykepengegrunnlag)
+        assertEquals(listOf(480000, 420000), TestDatabase.arbeidsgivere().map { it.omregnetÅrsinntekt.intValueExact() })
+    }
+
+    @Test
+    fun `inntekten er 0 når a-ordningen ikke har noen inntekt for arbeidsgiveren`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1, beregnetInntekt = "30000")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 12), "30000")
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im), lagAOrdningen(A2))), FØDSELSNUMMER)
+
+        val id =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(0)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
+        val ghost = TestDatabase.arbeidsgivere().single { it.orgnummer == A2 }
+        assertEquals("A_ORDNINGEN", ghost.inntektskilde)
+        assertBeløp("0", ghost.omregnetÅrsinntekt)
+        assertBeløp("360000", TestDatabase.grunnlag().single().beregningsgrunnlag)
+        assertEquals(listOf(id to A2), TestDatabase.aOrdningsoppslag())
+        assertEquals(emptyList<TestDatabase.Skatteopplysningsrad>(), TestDatabase.skatteopplysninger())
+    }
+
+    @Test
+    fun `inntekten fra a-ordningen blir ikke negativ`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 11), "1000")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A1, YearMonth.of(2025, 12), "-5000")
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A1))), FØDSELSNUMMER)
+
+        assertBeløp("0", TestDatabase.arbeidsgivere().single().omregnetÅrsinntekt)
+        assertEquals(2, TestDatabase.skatteopplysninger().size)
+    }
+
+    @Test
+    fun `lagrer subsumsjonen for § 8-28 tredje ledd bokstav a for arbeidsgivere med inntekt fra a-ordningen`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1, beregnetInntekt = "30000")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, 11), "10000")
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, A2, YearMonth.of(2025, 12), "12500", inntektType = "YTELSE_FRA_OFFENTLIGE", beskrivelse = "sykepenger")
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im), lagAOrdningen(A2))), FØDSELSNUMMER)
+
+        val id =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(0)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
+        val subsumsjon = TestDatabase.subsumsjoner().single { it.paragraf == "8-28" }
+        assertEquals(id, subsumsjon.sykepengegrunnlagId)
+        assertEquals(3, subsumsjon.ledd)
+        assertEquals("VILKAR_BEREGNET", subsumsjon.utfall)
+        assertJsonEquals(
+            """
+            {
+              "organisasjonsnummer": "$A2",
+              "inntekterSisteTreMåneder": [
+                {"beløp": 10000, "årMåned": "2025-11", "type": "LØNNSINNTEKT", "fordel": "kontantytelse", "beskrivelse": "fastloenn"},
+                {"beløp": 12500, "årMåned": "2025-12", "type": "YTELSE_FRA_OFFENTLIGE", "fordel": "kontantytelse", "beskrivelse": "sykepenger"}
+              ],
+              "skjæringstidspunkt": "2026-01-01"
+            }
+            """,
+            subsumsjon.input,
+        )
+        assertJsonEquals("""{"beregnetGrunnlagForSykepengegrunnlagPrÅr": 90000, "beregnetGrunnlagForSykepengegrunnlagPrMåned": 7500.00}""", subsumsjon.output)
+        assertEquals(listOf("8-28", "8-10"), TestDatabase.subsumsjoner().map { it.paragraf })
+    }
+
+    @Test
+    fun `kaller ikke inntektskomponenten når ingen arbeidsgiver har inntektskilden A_ORDNINGEN`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1)
+        inntektskomponenten.feiler()
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im))), FØDSELSNUMMER)
+
+        assertEquals(1, rapid.inspektør.size)
+        assertEquals(emptyList<FakeInntektskomponenten.Kall>(), inntektskomponenten.kall)
+    }
+
+    @Test
+    fun `svarer ikke når inntektskomponenten feiler`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1)
+        inntektskomponenten.feiler()
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im), lagAOrdningen(A2))), FØDSELSNUMMER)
+
+        assertEquals(1, inntektskomponenten.kall.size)
+        assertSvarteIkke()
+        assertEquals(emptyList<TestDatabase.Skatteopplysningsrad>(), TestDatabase.skatteopplysninger())
+    }
+
+    @Test
+    fun `svarer ikke når inntektskomponenten svarer med aktør-ID`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        inntektskomponenten.leggTilInntekt(FØDSELSNUMMER, "1234567890123", YearMonth.of(2025, 12), "30000", virksomhetstype = "AKTOER_ID")
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A1))), FØDSELSNUMMER)
+
+        assertSvarteIkke()
+    }
+
+    @Test
+    fun `svarer ikke når en arbeidsgiver har en ukjent inntektskilde`() {
         val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
         val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1)
 
-        val behov =
-            lagSykepengegrunnlagBehov(
-                rettighetskategoriId,
-                listOf(lagArbeidsgiver(A1, im), lagArbeidsgiver(A2, inntektsmeldingMeldingsreferanseId = null, inntektskilde = "A_ORDNINGEN")),
-            )
-        rapid.sendTestMessage(behov, FØDSELSNUMMER)
+        rapid.sendTestMessage(
+            lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im), lagArbeidsgiver(A2, null, inntektskilde = "INFOTRYGD"))),
+            FØDSELSNUMMER,
+        )
 
         assertSvarteIkke()
+        assertEquals(emptyList<FakeInntektskomponenten.Kall>(), inntektskomponenten.kall)
     }
 
     @Test
@@ -453,9 +669,12 @@ internal class SykepengegrunnlagRiverTest {
         inntektskilde: String = "INNTEKTSMELDING",
     ) = """{"orgnummer": "$orgnummer", "inntektskilde": "$inntektskilde"${inntektsmeldingMeldingsreferanseId?.let { ", \"inntektsmeldingMeldingsreferanseId\": \"$it\"" } ?: ""}}"""
 
+    private fun lagAOrdningen(orgnummer: String) = lagArbeidsgiver(orgnummer, inntektsmeldingMeldingsreferanseId = null, inntektskilde = "A_ORDNINGEN")
+
     private companion object {
         val A1 = lagOrganisasjonsnummer()
         val A2 = lagOrganisasjonsnummer()
+        val A3 = lagOrganisasjonsnummer()
         val FØDSELSNUMMER = lagIdentitetsnummer()
         val objectMapper = jacksonObjectMapper()
         val SKJÆRINGSTIDSPUNKT: LocalDate = LocalDate.of(2026, 1, 1)

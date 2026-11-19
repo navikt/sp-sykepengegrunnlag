@@ -32,6 +32,7 @@ fun main() {
                 scope = env.getValue("SPEDISJON_SCOPE"),
             ),
         rettighetskategoriClient = RettighetskategoriClient.fraMiljø(env, tokenProvider),
+        inntektskomponentenClient = InntektskomponentenClient.fraMiljø(env, tokenProvider),
     )
 }
 
@@ -40,6 +41,7 @@ internal fun launchApplication(
     kafkaConfig: Config,
     spedisjonClient: SpedisjonClient,
     rettighetskategoriClient: RettighetskategoriClient,
+    inntektskomponentenClient: InntektskomponentenClient,
 ) {
     val databaseConfig = DatabaseConfig.fraEnv(env)
     logger.info("Migrerer database")
@@ -61,7 +63,7 @@ internal fun launchApplication(
                 }
             },
         ).apply {
-            registrerRivers(dataSource, spedisjonClient, rettighetskategoriClient)
+            registrerRivers(dataSource, spedisjonClient, rettighetskategoriClient, inntektskomponentenClient)
         }.start()
 }
 
@@ -69,6 +71,7 @@ internal fun RapidsConnection.registrerRivers(
     dataSource: DataSource,
     spedisjonClient: SpedisjonClient,
     rettighetskategoriClient: RettighetskategoriClient,
+    inntektskomponentenClient: InntektskomponentenClient,
 ) {
-    SykepengegrunnlagRiver(this, Inntektsmeldinger(spedisjonClient), Søknader(spedisjonClient), rettighetskategoriClient, dataSource)
+    SykepengegrunnlagRiver(this, Inntektsmeldinger(spedisjonClient), Søknader(spedisjonClient), rettighetskategoriClient, inntektskomponentenClient, dataSource)
 }

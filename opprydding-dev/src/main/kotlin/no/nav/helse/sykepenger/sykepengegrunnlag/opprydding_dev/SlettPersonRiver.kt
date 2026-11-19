@@ -46,6 +46,7 @@ internal class SlettPersonRiver(
     ) {
         listOf(
             SLETT_SUBSUMSJONER,
+            SLETT_SKATTEOPPLYSNINGER,
             SLETT_ARBEIDSGIVERINNTEKTER,
             SLETT_SELVSTENDIGINNTEKTER,
             SLETT_SYKEPENGEGRUNNLAG,
@@ -70,6 +71,10 @@ internal class SlettPersonRiver(
         @Language("PostgreSQL")
         const val SLETT_SUBSUMSJONER =
             "DELETE FROM subsumsjon WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
+
+        @Language("PostgreSQL")
+        const val SLETT_SKATTEOPPLYSNINGER =
+            "DELETE FROM skatteopplysning WHERE sykepengegrunnlag_id IN (SELECT id FROM sykepengegrunnlag WHERE fødselsnummer = :fodselsnummer)"
 
         @Language("PostgreSQL")
         const val SLETT_ARBEIDSGIVERINNTEKTER =

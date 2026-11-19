@@ -6,6 +6,7 @@ import org.intellij.lang.annotations.Language
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.util.UUID
 import javax.sql.DataSource
 import no.nav.sykepenger.libs.postgres.TestDatabase as PostgresTestDatabase
@@ -15,7 +16,7 @@ internal object TestDatabase {
 
     val dataSource: DataSource = database.dataSource
 
-    fun tøm() = database.tøm("subsumsjon", "arbeidsgiverinntekt", "selvstendiginntekt", "sykepengegrunnlag", "inntektsmelding", "pensjonsgivende_inntekt", "soknad")
+    fun tøm() = database.tøm("subsumsjon", "skatteopplysning", "arbeidsgiverinntekt", "selvstendiginntekt", "sykepengegrunnlag", "inntektsmelding", "pensjonsgivende_inntekt", "soknad")
 
     data class Grunnlagsrad(
         val id: UUID,
@@ -35,6 +36,16 @@ internal object TestDatabase {
         val inntektskilde: String,
         val inntektsmeldingInternDokumentId: UUID?,
         val omregnetÅrsinntekt: BigDecimal,
+    )
+
+    data class Skatteopplysningsrad(
+        val sykepengegrunnlagId: UUID,
+        val orgnummer: String,
+        val måned: YearMonth,
+        val beløp: BigDecimal,
+        val type: String,
+        val fordel: String,
+        val beskrivelse: String,
     )
 
     data class Inntektsmeldingrad(
@@ -101,6 +112,24 @@ internal object TestDatabase {
                 inntektsmeldingInternDokumentId = row.uuidOrNull("inntektsmelding_intern_dokument_id"),
                 omregnetÅrsinntekt = row.bigDecimal("omregnet_årsinntekt"),
             )
+        }
+
+    fun skatteopplysninger(): List<Skatteopplysningsrad> =
+        liste("SELECT * FROM skatteopplysning ORDER BY løpenummer") { row ->
+            Skatteopplysningsrad(
+                sykepengegrunnlagId = row.uuid("sykepengegrunnlag_id"),
+                orgnummer = row.string("orgnummer"),
+                måned = YearMonth.from(row.localDate("måned")),
+                beløp = row.bigDecimal("beløp"),
+                type = row.string("type"),
+                fordel = row.string("fordel"),
+                beskrivelse = row.string("beskrivelse"),
+            )
+        }
+
+    fun aOrdningsoppslag(): List<Pair<UUID, String>> =
+        liste("SELECT sykepengegrunnlag_id, orgnummer FROM arbeidsgiverinntekt WHERE a_ordningen_hentet IS NOT NULL ORDER BY løpenummer") { row ->
+            row.uuid("sykepengegrunnlag_id") to row.string("orgnummer")
         }
 
     fun inntektsmeldinger(): List<Inntektsmeldingrad> =

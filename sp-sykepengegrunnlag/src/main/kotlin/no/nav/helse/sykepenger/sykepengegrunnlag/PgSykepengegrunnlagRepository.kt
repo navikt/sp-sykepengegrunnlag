@@ -16,7 +16,10 @@ internal class PgSykepengegrunnlagRepository(
     ) {
         inntektsmeldinger.forEach { lagreInntektsmelding(grunnlag.fødselsnummer, it) }
         lagreGrunnlag(grunnlag)
-        grunnlag.arbeidsgivere.forEach { lagreArbeidsgiver(grunnlag, it) }
+        grunnlag.arbeidsgivere.forEach {
+            lagreArbeidsgiver(grunnlag, it)
+            it.skatteopplysninger.forEach { skatteopplysning -> lagreSkatteopplysning(grunnlag, it, skatteopplysning) }
+        }
         grunnlag.selvstendig?.let {
             lagreSøknad(grunnlag.fødselsnummer, it.søknad)
             lagreSelvstendig(grunnlag, it)
@@ -156,8 +159,9 @@ internal class PgSykepengegrunnlagRepository(
         val sql =
             """
             INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_intern_dokument_id, inntektsmelding_hentet,
-                                             omregnet_årsinntekt)
-            VALUES (:sykepengegrunnlagId, :orgnummer, :inntektskilde, :inntektsmeldingInternDokumentId, :inntektsmeldingHentet, :omregnetArsinntekt)
+                                             a_ordningen_hentet, omregnet_årsinntekt)
+            VALUES (:sykepengegrunnlagId, :orgnummer, :inntektskilde, :inntektsmeldingInternDokumentId, :inntektsmeldingHentet, :aOrdningenHentet,
+                    :omregnetArsinntekt)
             """
         tx.run(
             queryOf(
@@ -168,7 +172,35 @@ internal class PgSykepengegrunnlagRepository(
                     "inntektskilde" to arbeidsgiver.inntektskilde.name,
                     "inntektsmeldingInternDokumentId" to arbeidsgiver.inntektsmeldingInternDokumentId?.uuid,
                     "inntektsmeldingHentet" to arbeidsgiver.inntektsmeldingHentet,
+                    "aOrdningenHentet" to arbeidsgiver.aOrdningenHentet,
                     "omregnetArsinntekt" to arbeidsgiver.omregnetÅrsinntekt.tilDesimal(),
+                ),
+            ).asUpdate,
+        )
+    }
+
+    private fun lagreSkatteopplysning(
+        grunnlag: Sykepengegrunnlag,
+        arbeidsgiver: Arbeidsgiverinntekt,
+        skatteopplysning: Skatteopplysning,
+    ) {
+        @Language("PostgreSQL")
+        val sql =
+            """
+            INSERT INTO skatteopplysning (sykepengegrunnlag_id, orgnummer, måned, beløp, type, fordel, beskrivelse)
+            VALUES (:sykepengegrunnlagId, :orgnummer, :maned, :belop, :type, :fordel, :beskrivelse)
+            """
+        tx.run(
+            queryOf(
+                sql,
+                mapOf(
+                    "sykepengegrunnlagId" to grunnlag.id.uuid,
+                    "orgnummer" to arbeidsgiver.orgnummer.verdi,
+                    "maned" to skatteopplysning.måned.atDay(1),
+                    "belop" to skatteopplysning.beløp.tilDesimal(),
+                    "type" to skatteopplysning.type.name,
+                    "fordel" to skatteopplysning.fordel,
+                    "beskrivelse" to skatteopplysning.beskrivelse,
                 ),
             ).asUpdate,
         )

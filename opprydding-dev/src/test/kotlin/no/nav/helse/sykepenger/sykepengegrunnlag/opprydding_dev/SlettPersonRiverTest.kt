@@ -45,7 +45,7 @@ internal class SlettPersonRiverTest {
     }
 
     @Test
-    fun `sletter grunnlagene, inntektene, subsumsjonene, inntektsmeldingene og søknadene til personen`() {
+    fun `sletter grunnlagene, inntektene, skatteopplysningene, subsumsjonene, inntektsmeldingene og søknadene til personen`() {
         val fødselsnummer = lagIdentitetsnummer()
         val annenPerson = lagIdentitetsnummer()
         lagreGrunnlag(fødselsnummer)
@@ -59,6 +59,7 @@ internal class SlettPersonRiverTest {
             mapOf(
                 "sykepengegrunnlag" to 0,
                 "arbeidsgiverinntekt" to 0,
+                "skatteopplysning" to 0,
                 "selvstendiginntekt" to 0,
                 "subsumsjon" to 0,
                 "inntektsmelding" to 0,
@@ -70,7 +71,8 @@ internal class SlettPersonRiverTest {
         assertEquals(
             mapOf(
                 "sykepengegrunnlag" to 2,
-                "arbeidsgiverinntekt" to 1,
+                "arbeidsgiverinntekt" to 2,
+                "skatteopplysning" to 1,
                 "selvstendiginntekt" to 1,
                 "subsumsjon" to 1,
                 "inntektsmelding" to 1,
@@ -123,6 +125,13 @@ internal class SlettPersonRiverTest {
             ), arbeidsgiver AS (
                 INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, inntektsmelding_intern_dokument_id, inntektsmelding_hentet, omregnet_årsinntekt)
                 SELECT grunnlag.id, '987654321', 'INNTEKTSMELDING', inntektsmelding.intern_dokument_id, now(), 360000 FROM grunnlag, inntektsmelding
+            ), a_ordningen AS (
+                INSERT INTO arbeidsgiverinntekt (sykepengegrunnlag_id, orgnummer, inntektskilde, a_ordningen_hentet, omregnet_årsinntekt)
+                SELECT grunnlag.id, '987654322', 'A_ORDNINGEN', now(), 120000 FROM grunnlag
+                RETURNING sykepengegrunnlag_id, orgnummer
+            ), skatteopplysning AS (
+                INSERT INTO skatteopplysning (sykepengegrunnlag_id, orgnummer, måned, beløp, type, fordel, beskrivelse)
+                SELECT sykepengegrunnlag_id, orgnummer, '2025-12-01', 10000, 'LØNNSINNTEKT', 'kontantytelse', 'fastloenn' FROM a_ordningen
             )
             INSERT INTO subsumsjon (sykepengegrunnlag_id, lovverk, versjon, paragraf, ledd, punktum, utfall, input, output)
             SELECT id, 'folketrygdloven', '2020-01-01', '8-10', 2, 1, 'VILKAR_BEREGNET', '{}', '{}' FROM grunnlag
@@ -138,6 +147,11 @@ internal class SlettPersonRiverTest {
             "arbeidsgiverinntekt" to
                 antall(
                     "SELECT COUNT(*) FROM arbeidsgiverinntekt a JOIN sykepengegrunnlag s ON s.id = a.sykepengegrunnlag_id WHERE s.fødselsnummer = :fodselsnummer",
+                    fødselsnummer,
+                ),
+            "skatteopplysning" to
+                antall(
+                    "SELECT COUNT(*) FROM skatteopplysning o JOIN sykepengegrunnlag s ON s.id = o.sykepengegrunnlag_id WHERE s.fødselsnummer = :fodselsnummer",
                     fødselsnummer,
                 ),
             "selvstendiginntekt" to

@@ -1,8 +1,8 @@
 # sp-sykepengegrunnlag
 
-Appen fastsetter sykepengegrunnlaget. Den svarer på behovet `Sykepengegrunnlag` fra Spleis med en sykepengegrunnlag-ID. Foreløpig svarer den når alle arbeidsgiverne har inntektskilden `INNTEKTSMELDING`, og for selvstendig næringsdrivende.
+Appen fastsetter sykepengegrunnlaget. Den svarer på behovet `Sykepengegrunnlag` fra Spleis med en sykepengegrunnlag-ID. Den fastsetter grunnlaget for arbeidstakere fra inntektsmeldinger og a-ordningen, og for selvstendig næringsdrivende fra søknaden.
 
-Appen henter inntektsmeldingene og søknadene fra Spedisjon og slår opp rettighetskategorien i sp-rettighetskategori. Reglene for beregningsgrunnlaget, 6G-begrensningen, § 8-35 for selvstendig næringsdrivende og grunnbeløpet er kopiert fra Spleis. Grunnlaget, opplysningene fra inntektsmeldingene, den pensjonsgivende inntekten fra søknadene og subsumsjonene lagres i appens egen Postgres-database. Appen lagrer ikke kopier av inntektsmeldingene eller søknadene.
+Appen henter inntektsmeldingene og søknadene fra Spedisjon, inntektene fra a-ordningen fra inntektskomponenten og slår opp rettighetskategorien i sp-rettighetskategori. Reglene for beregningsgrunnlaget, omregnet årsinntekt etter § 8-28, 6G-begrensningen, § 8-35 for selvstendig næringsdrivende og grunnbeløpet er kopiert fra Spleis. Grunnlaget, opplysningene fra inntektsmeldingene, den pensjonsgivende inntekten fra søknadene, de månedlige inntektene fra a-ordningen og subsumsjonene lagres i appens egen Postgres-database. Appen lagrer ikke kopier av inntektsmeldingene eller søknadene.
 
 Bygg og kjør testene:
 

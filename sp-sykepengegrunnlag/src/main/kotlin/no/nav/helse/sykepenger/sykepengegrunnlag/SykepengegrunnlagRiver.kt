@@ -23,6 +23,7 @@ internal class SykepengegrunnlagRiver(
     private val inntektsmeldinger: Inntektsmeldinger,
     private val søknader: Søknader,
     private val rettighetskategoriClient: RettighetskategoriClient,
+    private val inntektskomponentenClient: InntektskomponentenClient,
     private val dataSource: DataSource,
 ) : River.PacketListener {
     init {
@@ -65,9 +66,8 @@ internal class SykepengegrunnlagRiver(
             loggInfo("Mottatt behov for $BEHOV", "skjæringstidspunkt" to skjæringstidspunkt.toString())
             if (!støttes(arbeidsgivere, søknadInternDokumentId)) {
                 loggError(
-                    "Behov for $BEHOV med inntektskilder som ikke støttes ennå, svarer ikke",
+                    "Behov for $BEHOV må ha enten arbeidsgivere eller selvstendig næringsdrivende, svarer ikke",
                     "skjæringstidspunkt" to skjæringstidspunkt.toString(),
-                    "inntektskilder" to arbeidsgivere.map { it.path("inntektskilde").asString() }.toString(),
                 )
                 return@medMdc
             }
@@ -76,8 +76,7 @@ internal class SykepengegrunnlagRiver(
                     if (søknadInternDokumentId != null) {
                         fastsettForSelvstendig(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, søknadInternDokumentId)
                     } else {
-                        val inntektsmeldingIder = arbeidsgivere.map { InternDokumentId(UUID.fromString(it.path("inntektsmeldingMeldingsreferanseId").asString())) }
-                        fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, inntektsmeldingIder)
+                        fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, arbeidsgivere.map { it.tilInntektsopplysning() })
                     }
                 packet["@løsning"] = mapOf(BEHOV to mapOf("id" to grunnlag.id.uuid.toString()))
                 loggInfo(
@@ -103,20 +102,58 @@ internal class SykepengegrunnlagRiver(
     ) = if (søknadInternDokumentId != null) {
         arbeidsgivere.isEmpty()
     } else {
-        arbeidsgivere.isNotEmpty() && arbeidsgivere.all { it.path("inntektskilde").asString() == Inntektskilde.INNTEKTSMELDING.name }
+        arbeidsgivere.isNotEmpty()
+    }
+
+    private sealed interface Inntektsopplysning {
+        val orgnummer: Organisasjonsnummer
+
+        data class FraInntektsmelding(
+            override val orgnummer: Organisasjonsnummer,
+            val internDokumentId: InternDokumentId,
+        ) : Inntektsopplysning
+
+        data class FraAOrdningen(
+            override val orgnummer: Organisasjonsnummer,
+        ) : Inntektsopplysning
+    }
+
+    private fun JsonNode.tilInntektsopplysning(): Inntektsopplysning {
+        val orgnummer = Organisasjonsnummer.fraString(path("orgnummer").asString())
+        return when (Inntektskilde.valueOf(path("inntektskilde").asString())) {
+            Inntektskilde.INNTEKTSMELDING ->
+                Inntektsopplysning.FraInntektsmelding(orgnummer, InternDokumentId(UUID.fromString(path("inntektsmeldingMeldingsreferanseId").asString())))
+            Inntektskilde.A_ORDNINGEN -> Inntektsopplysning.FraAOrdningen(orgnummer)
+        }
     }
 
     private fun fastsett(
         fødselsnummer: Identitetsnummer,
         skjæringstidspunkt: LocalDate,
         rettighetskategoriId: RettighetskategoriId,
-        inntektsmeldingIder: List<InternDokumentId>,
+        inntektsopplysninger: List<Inntektsopplysning>,
     ): Sykepengegrunnlag {
         val hovedkategori = rettighetskategoriClient.hentHovedkategori(rettighetskategoriId, fødselsnummer)
         check(hovedkategori == Hovedkategori.ARBEIDSTAKER) { "Hovedkategorien $hovedkategori støttes ikke ennå" }
-        val inntektsmeldinger = inntektsmeldinger.hent(inntektsmeldingIder)
+        val fraInntektsmelding = inntektsopplysninger.filterIsInstance<Inntektsopplysning.FraInntektsmelding>()
+        val inntektsmeldinger =
+            if (fraInntektsmelding.isEmpty()) emptyList() else inntektsmeldinger.hent(fraInntektsmelding.map { it.internDokumentId })
+        val aOrdningen =
+            if (inntektsopplysninger.none { it is Inntektsopplysning.FraAOrdningen }) {
+                null
+            } else {
+                inntektskomponentenClient.hentInntekterForSykepengegrunnlag(fødselsnummer, Arbeidsgiverinntekt.beregningsperiodeForAOrdningen(skjæringstidspunkt))
+            }
+        val inntektsmeldingPerId = inntektsmeldinger.associateBy { it.internDokumentId }
+        val arbeidsgivere =
+            inntektsopplysninger.map {
+                when (it) {
+                    is Inntektsopplysning.FraInntektsmelding -> Arbeidsgiverinntekt.fraInntektsmelding(inntektsmeldingPerId.getValue(it.internDokumentId))
+                    is Inntektsopplysning.FraAOrdningen -> Arbeidsgiverinntekt.fraAOrdningen(it.orgnummer, checkNotNull(aOrdningen))
+                }
+            }
         return Sykepengegrunnlag
-            .fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, inntektsmeldinger, nå = Instant.now())
+            .fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, arbeidsgivere, nå = Instant.now())
             .also { lagre(it, inntektsmeldinger) }
     }
 

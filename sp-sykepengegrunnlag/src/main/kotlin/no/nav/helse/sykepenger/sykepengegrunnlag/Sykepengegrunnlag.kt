@@ -1,8 +1,10 @@
 package no.nav.helse.sykepenger.sykepengegrunnlag
 
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.UUID
 
@@ -103,11 +105,35 @@ internal class Selvstendiginntekt(
     }
 }
 
+internal data class Skatteopplysning(
+    val måned: YearMonth,
+    val beløp: BigDecimal,
+    val type: Inntekttype,
+    val fordel: String,
+    val beskrivelse: String,
+) {
+    enum class Inntekttype(
+        private val inntektskomponenten: String,
+    ) {
+        LØNNSINNTEKT("LOENNSINNTEKT"),
+        NÆRINGSINNTEKT("NAERINGSINNTEKT"),
+        PENSJON_ELLER_TRYGD("PENSJON_ELLER_TRYGD"),
+        YTELSE_FRA_OFFENTLIGE("YTELSE_FRA_OFFENTLIGE"),
+        ;
+
+        companion object {
+            fun fraInntektskomponenten(inntektType: String) = requireNotNull(entries.find { it.inntektskomponenten == inntektType }) { "Ukjent inntektstype fra inntektskomponenten: $inntektType" }
+        }
+    }
+}
+
 internal data class Arbeidsgiverinntekt(
     val orgnummer: Organisasjonsnummer,
     val inntektskilde: Inntektskilde,
     val inntektsmeldingInternDokumentId: InternDokumentId?,
     val inntektsmeldingHentet: Instant?,
+    val skatteopplysninger: List<Skatteopplysning>,
+    val aOrdningenHentet: Instant?,
     val omregnetÅrsinntekt: BigDecimal,
 ) {
     companion object {
@@ -117,13 +143,42 @@ internal data class Arbeidsgiverinntekt(
                 inntektskilde = Inntektskilde.INNTEKTSMELDING,
                 inntektsmeldingInternDokumentId = inntektsmelding.internDokumentId,
                 inntektsmeldingHentet = inntektsmelding.hentet,
+                skatteopplysninger = emptyList(),
+                aOrdningenHentet = null,
                 omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * BigDecimal(12),
             )
+
+        /** § 8-28 tredje ledd bokstav a: snittet av månedene i [beregningsperiodeForAOrdningen], regnet om til årsinntekt, som `SkatteopplysningerForSykepengegrunnlag` i Spleis. */
+        fun fraAOrdningen(
+            orgnummer: Organisasjonsnummer,
+            oppslag: AOrdningsoppslag,
+        ): Arbeidsgiverinntekt {
+            val skatteopplysninger =
+                oppslag.inntekter
+                    .filter { it.virksomhet == orgnummer.verdi }
+                    .map { it.skatteopplysning }
+            val sum = skatteopplysninger.fold(BigDecimal.ZERO) { sum, opplysning -> sum + opplysning.beløp }
+            return Arbeidsgiverinntekt(
+                orgnummer = orgnummer,
+                inntektskilde = Inntektskilde.A_ORDNINGEN,
+                inntektsmeldingInternDokumentId = null,
+                inntektsmeldingHentet = null,
+                skatteopplysninger = skatteopplysninger,
+                aOrdningenHentet = oppslag.hentet,
+                omregnetÅrsinntekt = sum.max(BigDecimal.ZERO) * BigDecimal(4),
+            )
+        }
+
+        fun beregningsperiodeForAOrdningen(skjæringstidspunkt: LocalDate): ClosedRange<YearMonth> {
+            val utgangspunkt = YearMonth.from(skjæringstidspunkt)
+            return utgangspunkt.minusMonths(3)..utgangspunkt.minusMonths(1)
+        }
     }
 }
 
 internal enum class Inntektskilde {
     INNTEKTSMELDING,
+    A_ORDNINGEN,
 }
 
 internal enum class Opphav {
@@ -157,29 +212,32 @@ internal class Sykepengegrunnlag private constructor(
     val er6GBegrenset = beregningsgrunnlag > seksG
 
     val subsumsjoner =
-        listOfNotNull(
-            Subsumsjon.`§ 8-10 ledd 2 punktum 1`(
-                erBegrenset = er6GBegrenset,
-                maksimaltSykepengegrunnlagÅrlig = seksG,
-                skjæringstidspunkt = skjæringstidspunkt,
-                beregningsgrunnlagÅrlig = beregningsgrunnlag,
-            ),
-            selvstendig?.let {
-                Subsumsjon.`§ 8-35 ledd 2`(
-                    årsinntekter = it.årsinntekter,
-                    nåværendeGrunnbeløp = it.anvendtGrunnbeløp,
+        arbeidsgivere
+            .filter { it.inntektskilde == Inntektskilde.A_ORDNINGEN }
+            .map { Subsumsjon.`§ 8-28 ledd 3 bokstav a`(it, skjæringstidspunkt) } +
+            listOfNotNull(
+                Subsumsjon.`§ 8-10 ledd 2 punktum 1`(
+                    erBegrenset = er6GBegrenset,
+                    maksimaltSykepengegrunnlagÅrlig = seksG,
                     skjæringstidspunkt = skjæringstidspunkt,
-                    sykepengegrunnlag = sykepengegrunnlag,
-                )
-            },
-        )
+                    beregningsgrunnlagÅrlig = beregningsgrunnlag,
+                ),
+                selvstendig?.let {
+                    Subsumsjon.`§ 8-35 ledd 2`(
+                        årsinntekter = it.årsinntekter,
+                        nåværendeGrunnbeløp = it.anvendtGrunnbeløp,
+                        skjæringstidspunkt = skjæringstidspunkt,
+                        sykepengegrunnlag = sykepengegrunnlag,
+                    )
+                },
+            )
 
     companion object {
         fun fastsett(
             fødselsnummer: Identitetsnummer,
             skjæringstidspunkt: LocalDate,
             rettighetskategoriId: RettighetskategoriId,
-            inntektsmeldinger: List<Inntektsmelding>,
+            arbeidsgivere: List<Arbeidsgiverinntekt>,
             nå: Instant,
         ) = Sykepengegrunnlag(
             id = Id(UUID.randomUUID()),
@@ -187,7 +245,7 @@ internal class Sykepengegrunnlag private constructor(
             skjæringstidspunkt = skjæringstidspunkt,
             rettighetskategoriId = rettighetskategoriId,
             opphav = Opphav.VILKÅRSPRØVING,
-            arbeidsgivere = inntektsmeldinger.map(Arbeidsgiverinntekt::fraInntektsmelding),
+            arbeidsgivere = arbeidsgivere,
             selvstendig = null,
             grunnbeløp = gjeldendeGrunnbeløp(skjæringstidspunkt, nå),
         )
@@ -251,6 +309,39 @@ internal data class Subsumsjon(
                     "grunnlagForSykepengegrunnlag" to beregningsgrunnlagÅrlig,
                 ),
             output = mapOf("erBegrenset" to erBegrenset),
+        )
+
+        fun `§ 8-28 ledd 3 bokstav a`(
+            arbeidsgiver: Arbeidsgiverinntekt,
+            skjæringstidspunkt: LocalDate,
+        ) = Subsumsjon(
+            lovverk = "folketrygdloven",
+            versjon = LocalDate.of(2019, 1, 1),
+            paragraf = "8-28",
+            ledd = 3,
+            punktum = null,
+            bokstav = "a",
+            utfall = "VILKAR_BEREGNET",
+            input =
+                mapOf(
+                    "organisasjonsnummer" to arbeidsgiver.orgnummer.verdi,
+                    "inntekterSisteTreMåneder" to
+                        arbeidsgiver.skatteopplysninger.map {
+                            mapOf(
+                                "beløp" to it.beløp,
+                                "årMåned" to it.måned.toString(),
+                                "type" to it.type.name,
+                                "fordel" to it.fordel,
+                                "beskrivelse" to it.beskrivelse,
+                            )
+                        },
+                    "skjæringstidspunkt" to skjæringstidspunkt,
+                ),
+            output =
+                mapOf(
+                    "beregnetGrunnlagForSykepengegrunnlagPrÅr" to arbeidsgiver.omregnetÅrsinntekt,
+                    "beregnetGrunnlagForSykepengegrunnlagPrMåned" to arbeidsgiver.omregnetÅrsinntekt.divide(BigDecimal(12), 2, RoundingMode.HALF_UP),
+                ),
         )
 
         fun `§ 8-35 ledd 2`(
