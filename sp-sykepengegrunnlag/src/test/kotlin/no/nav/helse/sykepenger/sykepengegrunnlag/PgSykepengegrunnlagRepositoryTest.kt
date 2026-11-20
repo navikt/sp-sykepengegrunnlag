@@ -83,6 +83,37 @@ internal class PgSykepengegrunnlagRepositoryTest {
         assertEquals(backfill.id, nyeste?.id)
     }
 
+    @Test
+    fun `finner alle grunnlagene for personen og skjæringstidspunktet, også fra backfill, med det nyeste først`() {
+        val første = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        val backfill = første.somBackfill()
+        sessionOf(TestDatabase.dataSource).use { session ->
+            session.transaction { PgSykepengegrunnlagRepository(it).lagre(backfill, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
+        }
+        val nyeste = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        lagre(lagIdentitetsnummer(), SKJÆRINGSTIDSPUNKT)
+        lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT.plusDays(1))
+
+        val alle =
+            sessionOf(TestDatabase.dataSource).use { session ->
+                session.transaction { PgSykepengegrunnlagRepository(it).finnAlle(Identitetsnummer.fraString(FØDSELSNUMMER), SKJÆRINGSTIDSPUNKT) }
+            }
+
+        assertEquals(listOf(nyeste.id, backfill.id, første.id), alle.map { it.id })
+    }
+
+    @Test
+    fun `finner ingen grunnlag når skjæringstidspunktet ikke har noen`() {
+        lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+
+        val alle =
+            sessionOf(TestDatabase.dataSource).use { session ->
+                session.transaction { PgSykepengegrunnlagRepository(it).finnAlle(Identitetsnummer.fraString(FØDSELSNUMMER), SKJÆRINGSTIDSPUNKT.minusDays(1)) }
+            }
+
+        assertEquals(emptyList<Sykepengegrunnlag>(), alle)
+    }
+
     private fun Sykepengegrunnlag.somBackfill() =
         Sykepengegrunnlag.fraLagring(
             id = Sykepengegrunnlag.Id(UUID.randomUUID()),

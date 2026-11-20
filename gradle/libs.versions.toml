@@ -1,8 +1,11 @@
 [versions]
 flyway = "13.12.2"
+ktor = "3.6.1"
 tbd-libs = "20261029.1843"
 sykepengerGradlePlugins = "20261029.1945"
 sykepenger-libs-kafka-test = "20261116.0849"
+sykepenger-libs-ktor-auth = "20261116.0849"
+sykepenger-libs-ktor-openapi = "20261120.1340"
 sykepenger-libs-logging = "20261116.0849"
 sykepenger-libs-postgres = "20261116.0849"
 sykepenger-libs-testing = "20261116.0849"
@@ -15,14 +18,26 @@ kotliquery = "com.github.seratch:kotliquery:1.9.1"
 postgresql = "org.postgresql:postgresql:42.7.14"
 rapids-and-rivers = "com.github.navikt:rapids-and-rivers:2026110308421793691732"
 sykepengerLibs-logging = { module = "no.nav.sykepenger.libs:logging", version.ref = "sykepenger-libs-logging" }
+sykepengerLibs-ktor-auth = { module = "no.nav.sykepenger.libs:ktor-auth", version.ref = "sykepenger-libs-ktor-auth" }
+sykepengerLibs-ktor-openapi = { module = "no.nav.sykepenger.libs:ktor-openapi", version.ref = "sykepenger-libs-ktor-openapi" }
 sykepengerLibs-kafka-test = { module = "no.nav.sykepenger.libs:kafka-test", version.ref = "sykepenger-libs-kafka-test" }
 sykepengerLibs-postgres = { module = "no.nav.sykepenger.libs:postgres", version.ref = "sykepenger-libs-postgres" }
 sykepengerLibs-testing = { module = "no.nav.sykepenger.libs:testing", version.ref = "sykepenger-libs-testing" }
 
+ktor-serialization-jackson3 = { module = "io.ktor:ktor-serialization-jackson3", version.ref = "ktor" }
+ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktor" }
+ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
+ktor-server-test-host = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+
+tbd-libs-access-token-provider-texas = { module = "com.github.navikt.tbd-libs:access-token-provider-texas", version.ref = "tbd-libs" }
 tbd-libs-azure-token-client-default = { module = "com.github.navikt.tbd-libs:azure-token-client-default", version.ref = "tbd-libs" }
 tbd-libs-mock-http-client = { module = "com.github.navikt.tbd-libs:mock-http-client", version.ref = "tbd-libs" }
 tbd-libs-rapids-and-rivers-test = { module = "com.github.navikt.tbd-libs:rapids-and-rivers-test", version.ref = "tbd-libs" }
 tbd-libs-spedisjon-client = { module = "com.github.navikt.tbd-libs:spedisjon-client", version.ref = "tbd-libs" }
+tbd-libs-person-pseudo-id = { module = "com.github.navikt.tbd-libs:person-pseudo-id", version.ref = "tbd-libs" }
+tbd-libs-populasjonstilgangskontroll-provider-api = { module = "com.github.navikt.tbd-libs:populasjonstilgangskontroll-provider-api", version.ref = "tbd-libs" }
+tbd-libs-populasjonstilgangskontroll-provider-tilgangsmaskinen = { module = "com.github.navikt.tbd-libs:populasjonstilgangskontroll-provider-tilgangsmaskinen", version.ref = "tbd-libs" }
 
 [plugins]
 sykepenger-deployable = { id = "no.nav.sykepenger.deployable", version.ref = "sykepengerGradlePlugins" }

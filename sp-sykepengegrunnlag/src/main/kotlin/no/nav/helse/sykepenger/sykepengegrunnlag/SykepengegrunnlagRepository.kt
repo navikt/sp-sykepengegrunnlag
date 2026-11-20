@@ -20,4 +20,10 @@ internal interface SykepengegrunnlagRepository {
         fødselsnummer: Identitetsnummer,
         skjæringstidspunkt: LocalDate,
     ): Sykepengegrunnlag?
+
+    /** Alle grunnlagene for skjæringstidspunktet, også fra backfill, med det nyeste først. */
+    fun finnAlle(
+        fødselsnummer: Identitetsnummer,
+        skjæringstidspunkt: LocalDate,
+    ): List<Sykepengegrunnlag>
 }

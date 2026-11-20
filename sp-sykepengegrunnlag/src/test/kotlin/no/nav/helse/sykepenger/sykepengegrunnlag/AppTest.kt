@@ -1,6 +1,8 @@
 package no.nav.helse.sykepenger.sykepengegrunnlag
 
 import com.github.navikt.tbd_libs.kafka.Config
+import no.nav.helse.sykepenger.sykepengegrunnlag.api.FakePersonProvider
+import no.nav.helse.sykepenger.sykepengegrunnlag.api.FakeTilgangskontroll
 import no.nav.sykepenger.libs.kafka.test.TestKafka
 import org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
 import org.apache.kafka.clients.CommonClientConfigs.SECURITY_PROTOCOL_CONFIG
@@ -55,11 +57,17 @@ internal class AppTest {
                             "KAFKA_CONSUMER_GROUP_ID" to "sp-sykepengegrunnlag-test",
                             "KAFKA_RAPID_TOPIC" to rapidTopic,
                             "KAFKA_RESET_POLICY" to "earliest",
+                            "AZURE_APP_CLIENT_ID" to "sp-sykepengegrunnlag",
+                            "AZURE_OPENID_CONFIG_ISSUER" to "http://localhost/azure",
+                            "AZURE_OPENID_CONFIG_JWKS_URI" to "http://localhost/azure/jwks",
+                            "TILGANG_LES" to "les",
                         ),
                 kafkaConfig = kafkaConfig,
                 spedisjonClient = FakeSpedisjon().client,
                 rettighetskategoriClient = FakeRettighetskategori().client,
                 inntektskomponentenClient = FakeInntektskomponenten().client,
+                personProvider = FakePersonProvider(),
+                tilgangskontroll = FakeTilgangskontroll(),
             )
         }
         ventTil("applikasjonen er klar") { statuskode("/isready") == 200 }
@@ -69,6 +77,12 @@ internal class AppTest {
     fun `svarer på helsesjekker`() {
         assertEquals(200, statuskode("/isalive"))
         assertEquals(200, statuskode("/isready"))
+    }
+
+    @Test
+    fun `krever innlogging for API-et og viser OpenAPI-specen`() {
+        assertEquals(401, statuskode("/api/personer/${UUID.randomUUID()}/sykepengegrunnlag?skjaeringstidspunkt=2026-01-01"))
+        assertEquals(200, statuskode("/api/openapi.json"))
     }
 
     @Test

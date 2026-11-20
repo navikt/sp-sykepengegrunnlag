@@ -1,0 +1,343 @@
+{
+  "openapi" : "3.1.1",
+  "info" : {
+    "title" : "sp-sykepengegrunnlag",
+    "version" : "1"
+  },
+  "paths" : {
+    "/api/personer/{personPseudoId}/sykepengegrunnlag" : {
+      "get" : {
+        "operationId" : "hentSykepengegrunnlag",
+        "tags" : [ "sykepengegrunnlag" ],
+        "summary" : "Henter alle sykepengegrunnlagene for et skjæringstidspunkt",
+        "description" : "Grunnlagene kommer med det nyeste først. Hver endring gir et nytt grunnlag, og de gamle beholdes.",
+        "parameters" : [ {
+          "name" : "personPseudoId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "skjaeringstidspunkt",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiSykepengegrunnlagListe"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "",
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiProblemDetails"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "",
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiProblemDetails"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "",
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiProblemDetails"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "",
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ {
+          "azure-ad-jwt" : [ ]
+        } ]
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "ApiSkatteopplysning" : {
+        "type" : "object",
+        "title" : "ApiSkatteopplysning",
+        "required" : [ "beløp", "beskrivelse", "fordel", "måned", "type" ],
+        "properties" : {
+          "beløp" : {
+            "type" : "number"
+          },
+          "beskrivelse" : {
+            "type" : "string"
+          },
+          "fordel" : {
+            "type" : "string"
+          },
+          "måned" : {
+            "type" : "string",
+            "pattern" : "^\\d{4}-\\d{2}$"
+          },
+          "type" : {
+            "type" : "string",
+            "enum" : [ "LONNSINNTEKT", "NAERINGSINNTEKT", "PENSJON_ELLER_TRYGD", "YTELSE_FRA_OFFENTLIGE" ]
+          }
+        }
+      },
+      "ApiSkjønnsfastsatt" : {
+        "type" : [ "object", "null" ],
+        "title" : "ApiSkjønnsfastsatt",
+        "required" : [ "skjønnsfastsettelseId", "årsinntekt" ],
+        "properties" : {
+          "skjønnsfastsettelseId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "årsinntekt" : {
+            "type" : "number"
+          }
+        }
+      },
+      "ApiArbeidsgiverinntekt" : {
+        "type" : "object",
+        "title" : "ApiArbeidsgiverinntekt",
+        "required" : [ "fastsattÅrsinntekt", "inntektskilde", "omregnetÅrsinntekt", "orgnummer", "skatteopplysninger" ],
+        "properties" : {
+          "aOrdningenHentet" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "aOrdningsoppslagId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "fastsattÅrsinntekt" : {
+            "type" : "number"
+          },
+          "inntektskilde" : {
+            "type" : "string",
+            "enum" : [ "INNTEKTSMELDING", "A_ORDNINGEN" ]
+          },
+          "inntektsmeldingHentet" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "inntektsmeldingInternDokumentId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "omregnetÅrsinntekt" : {
+            "type" : "number"
+          },
+          "orgnummer" : {
+            "type" : "string"
+          },
+          "skatteopplysninger" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ApiSkatteopplysning"
+            }
+          },
+          "skjønnsfastsatt" : {
+            "$ref" : "#/components/schemas/ApiSkjønnsfastsatt"
+          }
+        }
+      },
+      "ApiLovreferanse" : {
+        "type" : "object",
+        "title" : "ApiLovreferanse",
+        "required" : [ "iKraftFra", "lov", "paragraf", "utfall" ],
+        "properties" : {
+          "avsnitt" : {
+            "type" : [ "integer", "null" ]
+          },
+          "bokstav" : {
+            "type" : [ "string", "null" ]
+          },
+          "iKraftFra" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "lov" : {
+            "type" : "string"
+          },
+          "paragraf" : {
+            "type" : "string"
+          },
+          "setning" : {
+            "type" : [ "integer", "null" ]
+          },
+          "utfall" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ApiÅrsinntekt" : {
+        "type" : "object",
+        "title" : "ApiÅrsinntekt",
+        "required" : [ "beløp", "gjennomsnittligG", "år" ],
+        "properties" : {
+          "beløp" : {
+            "type" : "integer"
+          },
+          "gjennomsnittligG" : {
+            "type" : "integer"
+          },
+          "år" : {
+            "type" : "integer"
+          }
+        }
+      },
+      "ApiSelvstendiginntekt" : {
+        "type" : [ "object", "null" ],
+        "title" : "ApiSelvstendiginntekt",
+        "required" : [ "anvendtGrunnbeløp", "beregningsgrunnlag", "fastsattÅrsinntekt", "søknadHentet", "søknadId", "søknadInternDokumentId", "årsinntekter" ],
+        "properties" : {
+          "anvendtGrunnbeløp" : {
+            "type" : "number"
+          },
+          "beregningsgrunnlag" : {
+            "type" : "number"
+          },
+          "fastsattÅrsinntekt" : {
+            "type" : "number"
+          },
+          "søknadHentet" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "søknadId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "søknadInternDokumentId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "årsinntekter" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ApiÅrsinntekt"
+            }
+          }
+        }
+      },
+      "ApiSykepengegrunnlag" : {
+        "type" : "object",
+        "title" : "ApiSykepengegrunnlag",
+        "required" : [ "arbeidsgivere", "beregningsgrunnlag", "er6GBegrenset", "grunnbeløp", "id", "lovreferanser", "opphav", "rettighetskategoriId", "seksG", "skjæringstidspunkt", "sykepengegrunnlag" ],
+        "properties" : {
+          "arbeidsgivere" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ApiArbeidsgiverinntekt"
+            }
+          },
+          "beregningsgrunnlag" : {
+            "type" : "number"
+          },
+          "er6GBegrenset" : {
+            "type" : "boolean"
+          },
+          "grunnbeløp" : {
+            "type" : "number"
+          },
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "lovreferanser" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ApiLovreferanse"
+            }
+          },
+          "opphav" : {
+            "type" : "string",
+            "enum" : [ "VILKARSPROVING", "SKJONNSFASTSETTELSE", "BACKFILL_SPLEIS", "BACKFILL_INFOTRYGD" ]
+          },
+          "rettighetskategoriId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "seksG" : {
+            "type" : "number"
+          },
+          "selvstendig" : {
+            "$ref" : "#/components/schemas/ApiSelvstendiginntekt"
+          },
+          "skjæringstidspunkt" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "sykepengegrunnlag" : {
+            "type" : "number"
+          }
+        }
+      },
+      "ApiSykepengegrunnlagListe" : {
+        "type" : "object",
+        "title" : "ApiSykepengegrunnlagListe",
+        "required" : [ "sykepengegrunnlag" ],
+        "properties" : {
+          "sykepengegrunnlag" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ApiSykepengegrunnlag"
+            }
+          }
+        }
+      },
+      "ApiProblemDetails" : {
+        "type" : "object",
+        "title" : "ApiProblemDetails",
+        "required" : [ "detail", "instance", "status", "title", "type" ],
+        "properties" : {
+          "detail" : {
+            "type" : "string"
+          },
+          "instance" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "integer"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          }
+        }
+      }
+    }
+  }
+}

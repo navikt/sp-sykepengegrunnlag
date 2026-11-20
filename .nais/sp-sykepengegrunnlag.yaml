@@ -39,6 +39,12 @@ spec:
   azure:
     application:
       enabled: true
+      claims:
+        extra:
+          - NAVident
+  valkey:
+    - instance: personpseudoid
+      access: read
   prometheus:
     enabled: true
     path: /metrics
@@ -53,10 +59,17 @@ spec:
       value: http://sp-rettighetskategori
     - name: SPEDISJON_BASE_URL
       value: http://spedisjon
+    - name: TILGANGSMASKINEN_BASE_URL
+      value: http://populasjonstilgangskontroll.tilgangsmaskin
   accessPolicy:
+    inbound:
+      rules:
+        - application: speil
     outbound:
       rules:
         - application: logging
           namespace: nais-system
         - application: spedisjon
         - application: sp-rettighetskategori
+        - application: populasjonstilgangskontroll
+          namespace: tilgangsmaskin

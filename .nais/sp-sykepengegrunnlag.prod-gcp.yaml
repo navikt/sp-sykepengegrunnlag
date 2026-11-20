@@ -19,7 +19,19 @@ spec:
             value: "on"
   kafka:
     pool: nav-prod
+  azure:
+    application:
+      claims:
+        groups:
+          - id: c5f26254-c6fa-4942-b81b-5cdff847d3df # 0000-CA-Speil_Lesetilgang
+          - id: c0227409-2085-4eb2-b487-c4ba270986a3 # nais-team-tbd
+          - id: f787f900-6697-440d-a086-d5bb56e26a9c # tbd
+          - id: 54273224-e40a-4e3d-b3cb-2219603058f9 # speil-riksrevisjonen-lesetilgang
   env:
+    - name: TILGANGSMASKINEN_SCOPE
+      value: "api://prod-gcp.tilgangsmaskin.populasjonstilgangskontroll/.default"
+    - name: TILGANG_LES
+      value: c5f26254-c6fa-4942-b81b-5cdff847d3df,f787f900-6697-440d-a086-d5bb56e26a9c,54273224-e40a-4e3d-b3cb-2219603058f9
     - name: SP_RETTIGHETSKATEGORI_SCOPE
       value: "api://prod-gcp.tbd.sp-rettighetskategori/.default"
     - name: SPEDISJON_SCOPE

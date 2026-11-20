@@ -80,6 +80,30 @@ internal class PgSykepengegrunnlagRepository(
         )
     }
 
+    override fun finnAlle(
+        fødselsnummer: Identitetsnummer,
+        skjæringstidspunkt: LocalDate,
+    ): List<Sykepengegrunnlag> {
+        @Language("PostgreSQL")
+        val sql =
+            """
+            SELECT id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data
+            FROM sykepengegrunnlag
+            WHERE fødselsnummer = :fodselsnummer
+              AND skjæringstidspunkt = :skjaeringstidspunkt
+            ORDER BY opprettet DESC
+            """
+        return tx.run(
+            queryOf(
+                sql,
+                mapOf(
+                    "fodselsnummer" to fødselsnummer.verdi,
+                    "skjaeringstidspunkt" to skjæringstidspunkt,
+                ),
+            ).map { it.tilSykepengegrunnlag() }.asList,
+        )
+    }
+
     private fun Row.tilSykepengegrunnlag(): Sykepengegrunnlag {
         val data = objectMapper.readValue<SykepengegrunnlagDto>(string("data"))
         return Sykepengegrunnlag.fraLagring(
