@@ -26,11 +26,12 @@ spec:
       claims:
         groups:
           - id: 216b7219-3906-43c5-8e22-03fb74133b42 # 0000-CA-Speil_Lesetilgang
+          - id: cda797bb-ac3b-4440-b661-2cd5eb3edba0 # 0000-CA-Speil-Saksbehandler
   env:
     - name: TILGANGSMASKINEN_SCOPE
       value: "api://dev-gcp.tilgangsmaskin.populasjonstilgangskontroll/.default"
     - name: TILGANG_LES
-      value: 216b7219-3906-43c5-8e22-03fb74133b42
+      value: 216b7219-3906-43c5-8e22-03fb74133b42,cda797bb-ac3b-4440-b661-2cd5eb3edba0
     - name: SP_RETTIGHETSKATEGORI_SCOPE
       value: "api://dev-gcp.tbd.sp-rettighetskategori/.default"
     - name: SPEDISJON_SCOPE
