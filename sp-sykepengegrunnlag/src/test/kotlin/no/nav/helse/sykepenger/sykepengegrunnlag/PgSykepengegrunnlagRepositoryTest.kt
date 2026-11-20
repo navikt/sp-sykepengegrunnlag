@@ -24,7 +24,7 @@ internal class PgSykepengegrunnlagRepositoryTest {
         val nyeste = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
         lagre(lagIdentitetsnummer(), SKJÆRINGSTIDSPUNKT)
         lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT.plusDays(1))
-        Opphav.entries.filter { it != Opphav.VILKÅRSPRØVING }.forEach { TestDatabase.lagreGrunnlagFraBackfill(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT, it) }
+        listOf(Opphav.BACKFILL_SPLEIS, Opphav.BACKFILL_INFOTRYGD).forEach { TestDatabase.lagreGrunnlagFraBackfill(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT, it) }
 
         assertEquals(nyeste.id, finnNyesteUtenomBackfillOrNull()?.id)
     }
@@ -48,6 +48,57 @@ internal class PgSykepengegrunnlagRepositoryTest {
         assertEquals(BigDecimal("744168.00"), lagret.seksG)
         assertEquals(grunnlag.lovreferanser, lagret.lovreferanser)
     }
+
+    @Test
+    fun `lagrer det skjønnsfastsatte beløpet og ID-en til skjønnsfastsettelsen`() {
+        val forrige = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        val skjønnsfastsettelseId = SkjønnsfastsettelseId(UUID.randomUUID())
+        val skjønnsfastsatt = forrige.skjønnsfastsett(skjønnsfastsettelseId, listOf(Skjønnsfastsettelse(forrige.arbeidsgivere.single().orgnummer, BigDecimal("400000"))))
+        sessionOf(TestDatabase.dataSource).use { session ->
+            session.transaction { PgSykepengegrunnlagRepository(it).lagre(skjønnsfastsatt, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
+        }
+
+        val lagret = checkNotNull(finnNyesteUtenomBackfillOrNull())
+
+        assertEquals(skjønnsfastsatt.id, lagret.id)
+        assertEquals(Opphav.SKJØNNSFASTSETTELSE, lagret.opphav)
+        assertEquals(Skjønnsfastsatt(skjønnsfastsettelseId, BigDecimal("400000.00")), lagret.arbeidsgivere.single().skjønnsfastsatt)
+        assertEquals(BigDecimal("400000.00"), lagret.beregningsgrunnlag)
+    }
+
+    @Test
+    fun `endringer bygger på det nyeste grunnlaget, også når det kommer fra backfill`() {
+        val vilkårsprøving = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        val backfill = vilkårsprøving.somBackfill()
+        sessionOf(TestDatabase.dataSource).use { session ->
+            session.transaction { PgSykepengegrunnlagRepository(it).lagre(backfill, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
+        }
+        lagre(lagIdentitetsnummer(), SKJÆRINGSTIDSPUNKT)
+
+        val nyeste =
+            sessionOf(TestDatabase.dataSource).use { session ->
+                session.transaction { PgSykepengegrunnlagRepository(it).finnNyesteOrNull(Identitetsnummer.fraString(FØDSELSNUMMER), SKJÆRINGSTIDSPUNKT) }
+            }
+
+        assertEquals(backfill.id, nyeste?.id)
+    }
+
+    private fun Sykepengegrunnlag.somBackfill() =
+        Sykepengegrunnlag.fraLagring(
+            id = Sykepengegrunnlag.Id(UUID.randomUUID()),
+            fødselsnummer = fødselsnummer,
+            skjæringstidspunkt = skjæringstidspunkt,
+            rettighetskategoriId = rettighetskategoriId,
+            opphav = Opphav.BACKFILL_SPLEIS,
+            arbeidsgivere = arbeidsgivere,
+            selvstendig = selvstendig,
+            grunnbeløp = grunnbeløp,
+            seksG = seksG,
+            beregningsgrunnlag = beregningsgrunnlag,
+            sykepengegrunnlag = sykepengegrunnlag,
+            er6GBegrenset = er6GBegrenset,
+            lovreferanser = lovreferanser,
+        )
 
     private fun finnNyesteUtenomBackfillOrNull() =
         sessionOf(TestDatabase.dataSource).use { session ->

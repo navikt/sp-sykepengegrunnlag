@@ -71,19 +71,21 @@ internal data class Sykepengegrunnlagsfakta(
     companion object {
         private const val FINNES = "finnes"
 
+        /** Spleis viser inntektskilden `Saksbehandler` når inntekten er skjønnsfastsatt eller korrigert av saksbehandler. */
+        private const val SAKSBEHANDLER = "Saksbehandler"
+
         fun fra(grunnlag: Sykepengegrunnlag) =
             Sykepengegrunnlagsfakta(
                 sykepengegrunnlag = beløp(grunnlag.sykepengegrunnlag),
                 seksG = beløp(grunnlag.seksG),
-                // Skjønnsfastsettelse og korrigert inntekt kommer i egne tickets. Til da er grunnlaget alltid fastsatt etter hovedregelen.
-                fastsatt = "EtterHovedregel",
+                fastsatt = if (grunnlag.arbeidsgivere.any { it.skjønnsfastsatt != null }) "EtterSkjønn" else "EtterHovedregel",
                 arbeidsgivere =
                     grunnlag.arbeidsgivere.map {
                         Arbeidsgiver(
                             orgnummer = it.orgnummer,
                             omregnetÅrsinntekt = beløp(it.omregnetÅrsinntekt),
-                            inntektskilde = it.inntektskilde.iSpleis,
-                            skjønnsfastsatt = null,
+                            inntektskilde = if (it.skjønnsfastsatt != null) SAKSBEHANDLER else it.inntektskilde.iSpleis,
+                            skjønnsfastsatt = it.skjønnsfastsatt?.let { skjønnsfastsatt -> beløp(skjønnsfastsatt.årsinntekt) },
                         )
                     },
                 pensjonsgivendeInntekter =

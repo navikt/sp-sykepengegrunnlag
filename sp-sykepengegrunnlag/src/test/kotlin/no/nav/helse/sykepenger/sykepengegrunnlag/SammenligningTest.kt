@@ -67,6 +67,32 @@ internal class SammenligningTest {
     }
 
     @Test
+    fun `skjønnsfastsatt grunnlag er likt når Spleis har skjønnsfastsatt det samme`() {
+        val grunnlag =
+            grunnlag(arbeidsgiver(A1, "360000"), arbeidsgiver(A2, "240000"))
+                .skjønnsfastsett(
+                    SkjønnsfastsettelseId(UUID.randomUUID()),
+                    listOf(Skjønnsfastsettelse(A1, BigDecimal("400000")), Skjønnsfastsettelse(A2, BigDecimal("300000"))),
+                )
+
+        val sammenligning =
+            Sammenligning.sammenlign(
+                grunnlag,
+                spleis(
+                    sykepengegrunnlag = "700000",
+                    fastsatt = "EtterSkjønn",
+                    arbeidsgivere =
+                        listOf(
+                            spleisArbeidsgiver(A1, "360000", inntektskilde = "Saksbehandler", skjønnsfastsatt = "400000"),
+                            spleisArbeidsgiver(A2, "240000", inntektskilde = "Saksbehandler", skjønnsfastsatt = "300000"),
+                        ),
+                ),
+            )
+
+        assertInstanceOf(Sammenligning.Lik::class.java, sammenligning)
+    }
+
+    @Test
     fun `arbeidsgivere som bare finnes på den ene siden, er en forskjell`() {
         val grunnlag = grunnlag(arbeidsgiver(A1, "360000"))
 
@@ -179,6 +205,7 @@ internal class SammenligningTest {
         aOrdningsoppslagId = null,
         aOrdningenHentet = null,
         omregnetÅrsinntekt = BigDecimal(omregnetÅrsinntekt),
+        skjønnsfastsatt = null,
     )
 
     private fun skatteopplysning(

@@ -154,6 +154,22 @@ internal data class Skatteopplysning(
     }
 }
 
+@JvmInline
+internal value class SkjønnsfastsettelseId(
+    val uuid: UUID,
+)
+
+/** Årsinntekten saksbehandler har fastsatt for én arbeidsgiver ved skjønnsfastsettelse etter § 8-30 andre ledd. */
+internal data class Skjønnsfastsettelse(
+    val orgnummer: Organisasjonsnummer,
+    val årsinntekt: BigDecimal,
+)
+
+internal data class Skjønnsfastsatt(
+    val skjønnsfastsettelseId: SkjønnsfastsettelseId,
+    val årsinntekt: BigDecimal,
+)
+
 internal data class Arbeidsgiverinntekt(
     val orgnummer: Organisasjonsnummer,
     val inntektskilde: Inntektskilde,
@@ -163,7 +179,10 @@ internal data class Arbeidsgiverinntekt(
     val aOrdningsoppslagId: AOrdningsoppslag.Id?,
     val aOrdningenHentet: Instant?,
     val omregnetÅrsinntekt: BigDecimal,
+    val skjønnsfastsatt: Skjønnsfastsatt?,
 ) {
+    val fastsattÅrsinntekt = skjønnsfastsatt?.årsinntekt ?: omregnetÅrsinntekt
+
     companion object {
         fun fraInntektsmelding(inntektsmelding: Inntektsmelding) =
             Arbeidsgiverinntekt(
@@ -175,6 +194,7 @@ internal data class Arbeidsgiverinntekt(
                 aOrdningsoppslagId = null,
                 aOrdningenHentet = null,
                 omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * BigDecimal(12),
+                skjønnsfastsatt = null,
             )
 
         /** § 8-28 tredje ledd bokstav a: gjennomsnittet av de tre månedene før skjæringstidspunktet, regnet om til årsinntekt. */
@@ -201,6 +221,7 @@ internal data class Arbeidsgiverinntekt(
                 aOrdningsoppslagId = oppslag.id,
                 aOrdningenHentet = oppslag.hentet,
                 omregnetÅrsinntekt = (gjennomsnittPerMåned * BigDecimal(12)).setScale(2, RoundingMode.HALF_UP),
+                skjønnsfastsatt = null,
             )
         }
 
@@ -220,6 +241,7 @@ internal enum class Inntektskilde {
 
 internal enum class Opphav {
     VILKÅRSPRØVING,
+    SKJØNNSFASTSETTELSE,
     BACKFILL_SPLEIS,
     BACKFILL_INFOTRYGD,
 }
@@ -248,6 +270,59 @@ internal class Sykepengegrunnlag private constructor(
     value class Id(
         val uuid: UUID,
     )
+
+    private val _hendelser = mutableListOf<EndretSykepengegrunnlag>()
+    val hendelser: List<EndretSykepengegrunnlag> get() = _hendelser.toList()
+
+    /**
+     * Kopiert fra `Inntektsgrunnlag.skjønnsmessigFastsettelse` i Spleis: alle arbeidsgiverne i grunnlaget må skjønnsfastsettes,
+     * og grunnbeløpet beholdes.
+     */
+    fun skjønnsfastsett(
+        skjønnsfastsettelseId: SkjønnsfastsettelseId,
+        fastsettelser: List<Skjønnsfastsettelse>,
+    ): Sykepengegrunnlag {
+        check(fastsettelser.map { it.orgnummer }.toSet() == arbeidsgivere.map { it.orgnummer }.toSet() && fastsettelser.size == arbeidsgivere.size) {
+            "Alle arbeidsgiverne i sykepengegrunnlaget må skjønnsfastsettes"
+        }
+        val fastsettelsePerOrgnummer = fastsettelser.associateBy { it.orgnummer }
+        return endre(
+            opphav = Opphav.SKJØNNSFASTSETTELSE,
+            manuellVurdering = true,
+            arbeidsgivere =
+                arbeidsgivere.map {
+                    it.copy(skjønnsfastsatt = Skjønnsfastsatt(skjønnsfastsettelseId, fastsettelsePerOrgnummer.getValue(it.orgnummer).årsinntekt))
+                },
+        )
+    }
+
+    private fun endre(
+        opphav: Opphav,
+        manuellVurdering: Boolean,
+        arbeidsgivere: List<Arbeidsgiverinntekt>,
+    ): Sykepengegrunnlag =
+        nytt(
+            fødselsnummer = fødselsnummer,
+            skjæringstidspunkt = skjæringstidspunkt,
+            rettighetskategoriId = rettighetskategoriId,
+            opphav = opphav,
+            arbeidsgivere = arbeidsgivere,
+            selvstendig = selvstendig,
+            grunnbeløp = grunnbeløp,
+            seksG = seksG,
+            lovreferanser = lovreferanser,
+        ).also {
+            it._hendelser.add(
+                EndretSykepengegrunnlag(
+                    fødselsnummer = fødselsnummer,
+                    skjæringstidspunkt = skjæringstidspunkt,
+                    sykepengegrunnlagId = it.id,
+                    forrigeSykepengegrunnlagId = id,
+                    opphav = opphav,
+                    manuellVurdering = manuellVurdering,
+                ),
+            )
+        }
 
     init {
         check(arbeidsgivere.isNotEmpty() != (selvstendig != null)) { "Sykepengegrunnlaget må ha enten arbeidsgivere eller selvstendig næringsdrivende" }
@@ -325,11 +400,8 @@ internal class Sykepengegrunnlag private constructor(
             arbeidsgivere: List<Arbeidsgiverinntekt>,
             selvstendig: Selvstendiginntekt?,
             grunnbeløp: BigDecimal,
-        ): Sykepengegrunnlag {
-            val seksG = grunnbeløp * BigDecimal(6)
-            val beregningsgrunnlag = selvstendig?.beregningsgrunnlag ?: arbeidsgivere.fold(BigDecimal.ZERO) { sum, arbeidsgiver -> sum + arbeidsgiver.omregnetÅrsinntekt }
-            return Sykepengegrunnlag(
-                id = Id(UUID.randomUUID()),
+        ): Sykepengegrunnlag =
+            nytt(
                 fødselsnummer = fødselsnummer,
                 skjæringstidspunkt = skjæringstidspunkt,
                 rettighetskategoriId = rettighetskategoriId,
@@ -337,16 +409,41 @@ internal class Sykepengegrunnlag private constructor(
                 arbeidsgivere = arbeidsgivere,
                 selvstendig = selvstendig,
                 grunnbeløp = grunnbeløp,
-                seksG = seksG,
-                beregningsgrunnlag = beregningsgrunnlag,
-                sykepengegrunnlag = minOf(beregningsgrunnlag, seksG),
-                er6GBegrenset = beregningsgrunnlag > seksG,
+                seksG = grunnbeløp * BigDecimal(6),
                 lovreferanser =
                     listOfNotNull(
                         Lovreferanse.`§ 8-28 tredje avsnitt, bokstav a`().takeIf { arbeidsgivere.any { it.inntektskilde == Inntektskilde.A_ORDNINGEN } },
                         Lovreferanse.`§ 8-10 andre avsnitt, første setning`(),
                         selvstendig?.let { Lovreferanse.`§ 8-35 andre avsnitt`() },
                     ),
+            )
+
+        private fun nytt(
+            fødselsnummer: Identitetsnummer,
+            skjæringstidspunkt: LocalDate,
+            rettighetskategoriId: RettighetskategoriId,
+            opphav: Opphav,
+            arbeidsgivere: List<Arbeidsgiverinntekt>,
+            selvstendig: Selvstendiginntekt?,
+            grunnbeløp: BigDecimal,
+            seksG: BigDecimal,
+            lovreferanser: List<Lovreferanse>,
+        ): Sykepengegrunnlag {
+            val beregningsgrunnlag = selvstendig?.beregningsgrunnlag ?: arbeidsgivere.fold(BigDecimal.ZERO) { sum, arbeidsgiver -> sum + arbeidsgiver.fastsattÅrsinntekt }
+            return Sykepengegrunnlag(
+                id = Id(UUID.randomUUID()),
+                fødselsnummer = fødselsnummer,
+                skjæringstidspunkt = skjæringstidspunkt,
+                rettighetskategoriId = rettighetskategoriId,
+                opphav = opphav,
+                arbeidsgivere = arbeidsgivere,
+                selvstendig = selvstendig,
+                grunnbeløp = grunnbeløp,
+                seksG = seksG,
+                beregningsgrunnlag = beregningsgrunnlag,
+                sykepengegrunnlag = minOf(beregningsgrunnlag, seksG),
+                er6GBegrenset = beregningsgrunnlag > seksG,
+                lovreferanser = lovreferanser,
             )
         }
 
@@ -356,6 +453,15 @@ internal class Sykepengegrunnlag private constructor(
         ) = Grunnbeløp.gjeldende(skjæringstidspunkt, LocalDate.ofInstant(nå, ZoneId.of("Europe/Oslo")))
     }
 }
+
+internal data class EndretSykepengegrunnlag(
+    val fødselsnummer: Identitetsnummer,
+    val skjæringstidspunkt: LocalDate,
+    val sykepengegrunnlagId: Sykepengegrunnlag.Id,
+    val forrigeSykepengegrunnlagId: Sykepengegrunnlag.Id,
+    val opphav: Opphav,
+    val manuellVurdering: Boolean,
+)
 
 internal data class Lovreferanse(
     val lov: String,

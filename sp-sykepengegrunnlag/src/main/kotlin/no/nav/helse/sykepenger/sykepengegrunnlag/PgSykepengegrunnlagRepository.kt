@@ -1,5 +1,6 @@
 package no.nav.helse.sykepenger.sykepengegrunnlag
 
+import kotliquery.Row
 import kotliquery.TransactionalSession
 import kotliquery.queryOf
 import org.intellij.lang.annotations.Language
@@ -26,6 +27,31 @@ internal class PgSykepengegrunnlagRepository(
         lagreGrunnlag(grunnlag)
     }
 
+    override fun finnNyesteOrNull(
+        fødselsnummer: Identitetsnummer,
+        skjæringstidspunkt: LocalDate,
+    ): Sykepengegrunnlag? {
+        @Language("PostgreSQL")
+        val sql =
+            """
+            SELECT id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data
+            FROM sykepengegrunnlag
+            WHERE fødselsnummer = :fodselsnummer
+              AND skjæringstidspunkt = :skjaeringstidspunkt
+            ORDER BY opprettet DESC
+            LIMIT 1
+            """
+        return tx.run(
+            queryOf(
+                sql,
+                mapOf(
+                    "fodselsnummer" to fødselsnummer.verdi,
+                    "skjaeringstidspunkt" to skjæringstidspunkt,
+                ),
+            ).map { it.tilSykepengegrunnlag() }.asSingle,
+        )
+    }
+
     override fun finnNyesteUtenomBackfillOrNull(
         fødselsnummer: Identitetsnummer,
         skjæringstidspunkt: LocalDate,
@@ -50,24 +76,26 @@ internal class PgSykepengegrunnlagRepository(
                     "backfillSpleis" to Opphav.BACKFILL_SPLEIS.name,
                     "backfillInfotrygd" to Opphav.BACKFILL_INFOTRYGD.name,
                 ),
-            ).map { row ->
-                val data = objectMapper.readValue<SykepengegrunnlagDto>(row.string("data"))
-                Sykepengegrunnlag.fraLagring(
-                    id = Sykepengegrunnlag.Id(row.uuid("id")),
-                    fødselsnummer = Identitetsnummer.fraString(row.string("fødselsnummer")),
-                    skjæringstidspunkt = row.localDate("skjæringstidspunkt"),
-                    rettighetskategoriId = RettighetskategoriId(row.uuid("rettighetskategori_id")),
-                    opphav = Opphav.valueOf(row.string("opphav")),
-                    arbeidsgivere = data.arbeidsgivere.map { it.tilArbeidsgiverinntekt() },
-                    selvstendig = data.selvstendig?.tilSelvstendiginntekt(data),
-                    grunnbeløp = data.grunnbeløp,
-                    seksG = data.seksG,
-                    beregningsgrunnlag = data.beregningsgrunnlag,
-                    sykepengegrunnlag = data.sykepengegrunnlag,
-                    er6GBegrenset = data.er6GBegrenset,
-                    lovreferanser = data.lovreferanser.map { it.tilLovreferanse() },
-                )
-            }.asSingle,
+            ).map { it.tilSykepengegrunnlag() }.asSingle,
+        )
+    }
+
+    private fun Row.tilSykepengegrunnlag(): Sykepengegrunnlag {
+        val data = objectMapper.readValue<SykepengegrunnlagDto>(string("data"))
+        return Sykepengegrunnlag.fraLagring(
+            id = Sykepengegrunnlag.Id(uuid("id")),
+            fødselsnummer = Identitetsnummer.fraString(string("fødselsnummer")),
+            skjæringstidspunkt = localDate("skjæringstidspunkt"),
+            rettighetskategoriId = RettighetskategoriId(uuid("rettighetskategori_id")),
+            opphav = Opphav.valueOf(string("opphav")),
+            arbeidsgivere = data.arbeidsgivere.map { it.tilArbeidsgiverinntekt() },
+            selvstendig = data.selvstendig?.tilSelvstendiginntekt(data),
+            grunnbeløp = data.grunnbeløp,
+            seksG = data.seksG,
+            beregningsgrunnlag = data.beregningsgrunnlag,
+            sykepengegrunnlag = data.sykepengegrunnlag,
+            er6GBegrenset = data.er6GBegrenset,
+            lovreferanser = data.lovreferanser.map { it.tilLovreferanse() },
         )
     }
 
@@ -90,6 +118,7 @@ internal class PgSykepengegrunnlagRepository(
             aOrdningsoppslagId = aOrdningsoppslagId?.let { AOrdningsoppslag.Id(it) },
             aOrdningenHentet = aOrdningenHentet,
             omregnetÅrsinntekt = omregnetÅrsinntekt,
+            skjønnsfastsatt = skjønnsfastsatt?.let { Skjønnsfastsatt(SkjønnsfastsettelseId(it.skjønnsfastsettelseId), it.beløp) },
         )
 
     private fun SelvstendiginntektDto.tilSelvstendiginntekt(grunnlag: SykepengegrunnlagDto) =
@@ -300,6 +329,7 @@ internal class PgSykepengegrunnlagRepository(
             aOrdningsoppslagId = aOrdningsoppslagId?.uuid,
             aOrdningenHentet = aOrdningenHentet,
             omregnetÅrsinntekt = omregnetÅrsinntekt.tilDesimal(),
+            skjønnsfastsatt = skjønnsfastsatt?.let { SkjønnsfastsattDto(it.skjønnsfastsettelseId.uuid, it.årsinntekt.tilDesimal()) },
             skatteopplysninger =
                 skatteopplysninger.map {
                     SkatteopplysningDto(
@@ -357,7 +387,13 @@ private data class ArbeidsgiverinntektDto(
     val aOrdningsoppslagId: UUID?,
     val aOrdningenHentet: Instant?,
     val omregnetÅrsinntekt: BigDecimal,
+    val skjønnsfastsatt: SkjønnsfastsattDto? = null,
     val skatteopplysninger: List<SkatteopplysningDto>,
+)
+
+private data class SkjønnsfastsattDto(
+    val skjønnsfastsettelseId: UUID,
+    val beløp: BigDecimal,
 )
 
 private data class SkatteopplysningDto(

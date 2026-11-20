@@ -6,6 +6,8 @@ Appen henter inntektsmeldingene og søknadene fra Spedisjon, inntektene fra a-or
 
 Mens appen er i skyggedrift, sammenligner den det nyeste grunnlaget for skjæringstidspunktet med `sykepengegrunnlagsfakta` i godkjenningsbehovet fra Spleis. Grunnlag fra backfill er ikke med. Utfallet `lik`, `forskjell` eller `mangler` logges og telles i metrikken `sykepengegrunnlag_sammenligning_i_skyggedrift`. Appen svarer ikke på godkjenningsbehovet.
 
+Appen tar også imot skjønnsfastsettelser fra Spesialist. Da lager den et nytt grunnlag og sier fra til Spleis om at grunnlaget er endret.
+
 Bygg og kjør testene:
 
 ```shell
