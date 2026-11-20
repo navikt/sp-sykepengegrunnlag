@@ -4,6 +4,7 @@ import kotliquery.TransactionalSession
 import kotliquery.queryOf
 import org.intellij.lang.annotations.Language
 import tools.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.module.kotlin.readValue
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
@@ -23,6 +24,136 @@ internal class PgSykepengegrunnlagRepository(
         aOrdningsoppslag?.let { lagreAOrdningsoppslag(grunnlag.fødselsnummer, it) }
         grunnlag.selvstendig?.let { lagreSøknad(grunnlag.fødselsnummer, it.søknad) }
         lagreGrunnlag(grunnlag)
+    }
+
+    override fun finnNyesteUtenomBackfillOrNull(
+        fødselsnummer: Identitetsnummer,
+        skjæringstidspunkt: LocalDate,
+    ): Sykepengegrunnlag? {
+        @Language("PostgreSQL")
+        val sql =
+            """
+            SELECT id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data
+            FROM sykepengegrunnlag
+            WHERE fødselsnummer = :fodselsnummer
+              AND skjæringstidspunkt = :skjaeringstidspunkt
+              AND opphav NOT IN (:backfillSpleis, :backfillInfotrygd)
+            ORDER BY opprettet DESC
+            LIMIT 1
+            """
+        return tx.run(
+            queryOf(
+                sql,
+                mapOf(
+                    "fodselsnummer" to fødselsnummer.verdi,
+                    "skjaeringstidspunkt" to skjæringstidspunkt,
+                    "backfillSpleis" to Opphav.BACKFILL_SPLEIS.name,
+                    "backfillInfotrygd" to Opphav.BACKFILL_INFOTRYGD.name,
+                ),
+            ).map { row ->
+                val data = objectMapper.readValue<SykepengegrunnlagDto>(row.string("data"))
+                Sykepengegrunnlag.fraLagring(
+                    id = Sykepengegrunnlag.Id(row.uuid("id")),
+                    fødselsnummer = Identitetsnummer.fraString(row.string("fødselsnummer")),
+                    skjæringstidspunkt = row.localDate("skjæringstidspunkt"),
+                    rettighetskategoriId = RettighetskategoriId(row.uuid("rettighetskategori_id")),
+                    opphav = Opphav.valueOf(row.string("opphav")),
+                    arbeidsgivere = data.arbeidsgivere.map { it.tilArbeidsgiverinntekt() },
+                    selvstendig = data.selvstendig?.tilSelvstendiginntekt(data),
+                    grunnbeløp = data.grunnbeløp,
+                    seksG = data.seksG,
+                    beregningsgrunnlag = data.beregningsgrunnlag,
+                    sykepengegrunnlag = data.sykepengegrunnlag,
+                    er6GBegrenset = data.er6GBegrenset,
+                    lovreferanser = data.lovreferanser.map { it.tilLovreferanse() },
+                )
+            }.asSingle,
+        )
+    }
+
+    private fun ArbeidsgiverinntektDto.tilArbeidsgiverinntekt() =
+        Arbeidsgiverinntekt(
+            orgnummer = Organisasjonsnummer.fraString(orgnummer),
+            inntektskilde = Inntektskilde.valueOf(inntektskilde),
+            inntektsmeldingInternDokumentId = inntektsmeldingInternDokumentId?.let(::InternDokumentId),
+            inntektsmeldingHentet = inntektsmeldingHentet,
+            skatteopplysninger =
+                skatteopplysninger.map {
+                    Skatteopplysning(
+                        måned = it.måned,
+                        beløp = it.beløp,
+                        type = Skatteopplysning.Inntekttype.valueOf(it.type),
+                        fordel = it.fordel,
+                        beskrivelse = it.beskrivelse,
+                    )
+                },
+            aOrdningsoppslagId = aOrdningsoppslagId?.let { AOrdningsoppslag.Id(it) },
+            aOrdningenHentet = aOrdningenHentet,
+            omregnetÅrsinntekt = omregnetÅrsinntekt,
+        )
+
+    private fun SelvstendiginntektDto.tilSelvstendiginntekt(grunnlag: SykepengegrunnlagDto) =
+        Selvstendiginntekt.fraLagring(
+            søknad = hentSøknad(this),
+            anvendtGrunnbeløp = grunnlag.grunnbeløp,
+            årsinntekter = pensjonsgivendeInntekter.map { Selvstendiginntekt.Årsinntekt(år = it.inntektsår, beløp = it.beløp, gjennomsnittligG = it.gjennomsnittligG) },
+            fastsattÅrsinntekt = fastsattÅrsinntekt,
+            // For selvstendig næringsdrivende er beregningsgrunnlaget i sykepengegrunnlaget det samme som etter § 8-35.
+            beregningsgrunnlag = grunnlag.beregningsgrunnlag,
+        )
+
+    private fun LovreferanseDto.tilLovreferanse() =
+        Lovreferanse(
+            lov = lov,
+            paragraf = paragraf,
+            avsnitt = avsnitt,
+            setning = setning,
+            bokstav = bokstav,
+            iKraftFra = iKraftFra,
+            utfall = utfall,
+        )
+
+    private fun hentSøknad(selvstendig: SelvstendiginntektDto): Søknad {
+        val internDokumentId = InternDokumentId(selvstendig.søknadInternDokumentId)
+
+        @Language("PostgreSQL")
+        val søknadSql = "SELECT søknad_id FROM soknad WHERE søknad_intern_dokument_id = :soknadInternDokumentId"
+
+        @Language("PostgreSQL")
+        val inntektSql =
+            """
+            SELECT år, er_ferdig_lignet, lønnsinntekt, lønnsinntekt_bare_pensjonsdel, næringsinntekt,
+                   næringsinntekt_fra_fiske_fangst_eller_familiebarnehage
+            FROM pensjonsgivende_inntekt
+            WHERE søknad_intern_dokument_id = :soknadInternDokumentId
+            ORDER BY år
+            """
+        val parametere = mapOf("soknadInternDokumentId" to internDokumentId.uuid)
+        val søknadId =
+            checkNotNull(tx.run(queryOf(søknadSql, parametere).map { SøknadId(it.uuid("søknad_id")) }.asSingle)) {
+                "Fant ikke søknaden sykepengegrunnlaget bygger på"
+            }
+        val pensjonsgivendeInntekter =
+            tx
+                .run(
+                    queryOf(inntektSql, parametere)
+                        .map { row ->
+                            PensjonsgivendeInntekt(
+                                år = row.int("år"),
+                                erFerdigLignet = row.boolean("er_ferdig_lignet"),
+                                lønnsinntekt = row.bigDecimal("lønnsinntekt").intValueExact(),
+                                lønnsinntektBarePensjonsdel = row.bigDecimal("lønnsinntekt_bare_pensjonsdel").intValueExact(),
+                                næringsinntekt = row.bigDecimal("næringsinntekt").intValueExact(),
+                                næringsinntektFraFiskeFangstEllerFamiliebarnehage = row.bigDecimal("næringsinntekt_fra_fiske_fangst_eller_familiebarnehage").intValueExact(),
+                            )
+                        }.asList,
+                )
+        return Søknad(
+            internDokumentId = internDokumentId,
+            søknadId = søknadId,
+            pensjonsgivendeInntekter = pensjonsgivendeInntekter,
+            hentet = selvstendig.søknadHentet,
+        )
     }
 
     private fun lagreInntektsmelding(
@@ -185,7 +316,7 @@ internal class PgSykepengegrunnlagRepository(
         SelvstendiginntektDto(
             søknadInternDokumentId = søknad.internDokumentId.uuid,
             søknadHentet = søknad.hentet,
-            pensjonsgivendeInntekter = årsinntekter.map { PensjonsgivendeInntektDto(inntektsår = it.år, beløp = it.beløp, gjennomsnittligG = it.snitt) },
+            pensjonsgivendeInntekter = årsinntekter.map { PensjonsgivendeInntektDto(inntektsår = it.år, beløp = it.beløp, gjennomsnittligG = it.gjennomsnittligG) },
             fastsattÅrsinntekt = fastsattÅrsinntekt.tilDesimal(),
         )
 

@@ -271,6 +271,47 @@ internal object TestDatabase {
                                                    skatteopplysninger JSONB))
     """
 
+    fun lagreGrunnlagFraBackfill(
+        fødselsnummer: String,
+        skjæringstidspunkt: LocalDate,
+        opphav: Opphav,
+    ): UUID {
+        val id = UUID.randomUUID()
+        sessionOf(dataSource).use { session ->
+            session.run(
+                queryOf(
+                    """
+                    INSERT INTO sykepengegrunnlag (id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data)
+                    VALUES (:id, :fodselsnummer, :skjaeringstidspunkt, :rettighetskategoriId, :opphav, '{}'::jsonb)
+                    """,
+                    mapOf(
+                        "id" to id,
+                        "fodselsnummer" to fødselsnummer,
+                        "skjaeringstidspunkt" to skjæringstidspunkt,
+                        "rettighetskategoriId" to UUID.randomUUID(),
+                        "opphav" to opphav.name,
+                    ),
+                ).asUpdate,
+            )
+        }
+        return id
+    }
+
+    fun overskrivLagretFelt(
+        sykepengegrunnlagId: UUID,
+        sti: String,
+        verdi: String,
+    ) {
+        sessionOf(dataSource).use { session ->
+            session.run(
+                queryOf(
+                    "UPDATE sykepengegrunnlag SET data = jsonb_set(data, CAST(:sti AS text[]), CAST(:verdi AS jsonb)) WHERE id = :id",
+                    mapOf("id" to sykepengegrunnlagId, "sti" to sti, "verdi" to verdi),
+                ).asUpdate,
+            )
+        }
+    }
+
     private fun <T> liste(
         @Language("PostgreSQL") sql: String,
         mapper: (kotliquery.Row) -> T,

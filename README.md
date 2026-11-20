@@ -4,6 +4,8 @@ Appen fastsetter sykepengegrunnlaget. Den svarer på behovet `Sykepengegrunnlag`
 
 Appen henter inntektsmeldingene og søknadene fra Spedisjon, inntektene fra a-ordningen fra inntektskomponenten og slår opp rettighetskategorien i sp-rettighetskategori. Reglene for beregningsgrunnlaget, omregnet årsinntekt etter § 8-28, 6G-begrensningen, § 8-35 for selvstendig næringsdrivende og grunnbeløpet er kopiert fra Spleis. Grunnlaget, opplysningene fra inntektsmeldingene, den pensjonsgivende inntekten fra søknadene, hele svaret fra a-ordningen og lovreferansene lagres i appens egen Postgres-database. Appen lagrer ikke kopier av inntektsmeldingene eller søknadene.
 
+Mens appen er i skyggedrift, sammenligner den det nyeste grunnlaget for skjæringstidspunktet med `sykepengegrunnlagsfakta` i godkjenningsbehovet fra Spleis. Grunnlag fra backfill er ikke med. Utfallet `lik`, `forskjell` eller `mangler` logges og telles i metrikken `sykepengegrunnlag_sammenligning_i_skyggedrift`. Appen svarer ikke på godkjenningsbehovet.
+
 Bygg og kjør testene:
 
 ```shell

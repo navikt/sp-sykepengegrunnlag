@@ -58,28 +58,54 @@ internal data class PensjonsgivendeInntekt(
 
 /**
  * Reglene etter § 8-35 er kopiert fra `SelvstendigFaktaavklartInntekt` i Spleis, og regnes med `Double` slik Spleis gjør,
- * slik at resultatet blir likt.
+ * slik at resultatet blir likt. Bare [fastsett] regner. Et lagret grunnlag gjenopprettes med beløpene det ble fastsatt med.
  */
-internal class Selvstendiginntekt(
+internal class Selvstendiginntekt private constructor(
     val søknad: Søknad,
     val anvendtGrunnbeløp: BigDecimal,
+    val årsinntekter: List<Årsinntekt>,
+    val fastsattÅrsinntekt: BigDecimal,
+    val beregningsgrunnlag: BigDecimal,
 ) {
-    val årsinntekter = søknad.pensjonsgivendeInntekter.map { Årsinntekt(it.år, it.sum) }
+    data class Årsinntekt(
+        val år: Int,
+        val beløp: Int,
+        val gjennomsnittligG: Int,
+    )
 
-    init {
-        check(årsinntekter.size <= 3) { "Selvstendig kan ikke ha mer enn tre inntekter" }
-        check(årsinntekter.distinctBy { it.år }.size == årsinntekter.size) { "Selvstendig kan ikke ha flere inntekter med samme årstall" }
-        årsinntekter.map { it.år }.sorted().zipWithNext().forEach { (forrige, neste) ->
-            check(neste == forrige + 1) { "Inntektene må være i sekvens; årstallet må øke med 1 for hvert år" }
+    companion object {
+        fun fastsett(
+            søknad: Søknad,
+            anvendtGrunnbeløp: BigDecimal,
+        ): Selvstendiginntekt {
+            val årsberegninger = søknad.pensjonsgivendeInntekter.map { Årsberegning(it.år, it.sum) }
+            check(årsberegninger.size <= 3) { "Selvstendig kan ikke ha mer enn tre inntekter" }
+            check(årsberegninger.distinctBy { it.år }.size == årsberegninger.size) { "Selvstendig kan ikke ha flere inntekter med samme årstall" }
+            årsberegninger.map { it.år }.sorted().zipWithNext().forEach { (forrige, neste) ->
+                check(neste == forrige + 1) { "Inntektene må være i sekvens; årstallet må øke med 1 for hvert år" }
+            }
+            val grunnbeløp = anvendtGrunnbeløp.toDouble()
+            return Selvstendiginntekt(
+                søknad = søknad,
+                anvendtGrunnbeløp = anvendtGrunnbeløp,
+                årsinntekter = årsberegninger.map { Årsinntekt(it.år, it.beløp, it.snitt) },
+                fastsattÅrsinntekt = årsberegninger.summer { it.grunnbeløpsjustertGjennomsnitt(grunnbeløp) },
+                beregningsgrunnlag = årsberegninger.summer { it.beregningsgrunnlag(grunnbeløp) },
+            )
         }
+
+        fun fraLagring(
+            søknad: Søknad,
+            anvendtGrunnbeløp: BigDecimal,
+            årsinntekter: List<Årsinntekt>,
+            fastsattÅrsinntekt: BigDecimal,
+            beregningsgrunnlag: BigDecimal,
+        ) = Selvstendiginntekt(søknad, anvendtGrunnbeløp, årsinntekter, fastsattÅrsinntekt, beregningsgrunnlag)
+
+        private fun List<Årsberegning>.summer(beløp: (Årsberegning) -> Double) = sumOf(beløp).toInt().toBigDecimal()
     }
 
-    val fastsattÅrsinntekt = summer { it.grunnbeløpsjustertGjennomsnitt(anvendtGrunnbeløp.toDouble()) }
-    val beregningsgrunnlag = summer { it.beregningsgrunnlag(anvendtGrunnbeløp.toDouble()) }
-
-    private fun summer(beløp: (Årsinntekt) -> Double) = årsinntekter.sumOf(beløp).toInt().toBigDecimal()
-
-    class Årsinntekt(
+    private class Årsberegning(
         val år: Int,
         val beløp: Int,
     ) {
@@ -194,9 +220,15 @@ internal enum class Inntektskilde {
 
 internal enum class Opphav {
     VILKÅRSPRØVING,
+    BACKFILL_SPLEIS,
+    BACKFILL_INFOTRYGD,
 }
 
-/** Reglene er kopiert fra `Inntektsgrunnlag`, `ArbeidsgiverInntektsopplysning` og `SelvstendigFaktaavklartInntekt` i Spleis, slik at resultatet kan sammenlignes. */
+/**
+ * Reglene er kopiert fra `Inntektsgrunnlag`, `ArbeidsgiverInntektsopplysning` og `SelvstendigFaktaavklartInntekt` i Spleis, slik at
+ * resultatet kan sammenlignes. Bare `fastsett`-funksjonene regner. Et lagret grunnlag gjenopprettes med beløpene og lovreferansene det
+ * ble fastsatt med, slik at en senere endring i reglene ikke endrer et grunnlag som allerede er brukt.
+ */
 internal class Sykepengegrunnlag private constructor(
     val id: Id,
     val fødselsnummer: Identitetsnummer,
@@ -206,6 +238,11 @@ internal class Sykepengegrunnlag private constructor(
     val arbeidsgivere: List<Arbeidsgiverinntekt>,
     val selvstendig: Selvstendiginntekt?,
     val grunnbeløp: BigDecimal,
+    val seksG: BigDecimal,
+    val beregningsgrunnlag: BigDecimal,
+    val sykepengegrunnlag: BigDecimal,
+    val er6GBegrenset: Boolean,
+    val lovreferanser: List<Lovreferanse>,
 ) {
     @JvmInline
     value class Id(
@@ -217,18 +254,6 @@ internal class Sykepengegrunnlag private constructor(
         check(arbeidsgivere.distinctBy { it.orgnummer }.size == arbeidsgivere.size) { "Sykepengegrunnlaget har duplikate orgnumre" }
     }
 
-    val seksG = grunnbeløp * BigDecimal(6)
-    val beregningsgrunnlag = selvstendig?.beregningsgrunnlag ?: arbeidsgivere.fold(BigDecimal.ZERO) { sum, arbeidsgiver -> sum + arbeidsgiver.omregnetÅrsinntekt }
-    val sykepengegrunnlag = minOf(beregningsgrunnlag, seksG)
-    val er6GBegrenset = beregningsgrunnlag > seksG
-
-    val lovreferanser =
-        listOfNotNull(
-            Lovreferanse.`§ 8-28 tredje avsnitt, bokstav a`().takeIf { arbeidsgivere.any { it.inntektskilde == Inntektskilde.A_ORDNINGEN } },
-            Lovreferanse.`§ 8-10 andre avsnitt, første setning`(),
-            selvstendig?.let { Lovreferanse.`§ 8-35 andre avsnitt`() },
-        )
-
     companion object {
         fun fastsett(
             fødselsnummer: Identitetsnummer,
@@ -236,12 +261,10 @@ internal class Sykepengegrunnlag private constructor(
             rettighetskategoriId: RettighetskategoriId,
             arbeidsgivere: List<Arbeidsgiverinntekt>,
             nå: Instant,
-        ) = Sykepengegrunnlag(
-            id = Id(UUID.randomUUID()),
+        ) = beregn(
             fødselsnummer = fødselsnummer,
             skjæringstidspunkt = skjæringstidspunkt,
             rettighetskategoriId = rettighetskategoriId,
-            opphav = Opphav.VILKÅRSPRØVING,
             arbeidsgivere = arbeidsgivere,
             selvstendig = null,
             grunnbeløp = gjeldendeGrunnbeløp(skjæringstidspunkt, nå),
@@ -255,15 +278,75 @@ internal class Sykepengegrunnlag private constructor(
             nå: Instant,
         ): Sykepengegrunnlag {
             val grunnbeløp = gjeldendeGrunnbeløp(skjæringstidspunkt, nå)
+            return beregn(
+                fødselsnummer = fødselsnummer,
+                skjæringstidspunkt = skjæringstidspunkt,
+                rettighetskategoriId = rettighetskategoriId,
+                arbeidsgivere = emptyList(),
+                selvstendig = Selvstendiginntekt.fastsett(søknad, anvendtGrunnbeløp = grunnbeløp),
+                grunnbeløp = grunnbeløp,
+            )
+        }
+
+        fun fraLagring(
+            id: Id,
+            fødselsnummer: Identitetsnummer,
+            skjæringstidspunkt: LocalDate,
+            rettighetskategoriId: RettighetskategoriId,
+            opphav: Opphav,
+            arbeidsgivere: List<Arbeidsgiverinntekt>,
+            selvstendig: Selvstendiginntekt?,
+            grunnbeløp: BigDecimal,
+            seksG: BigDecimal,
+            beregningsgrunnlag: BigDecimal,
+            sykepengegrunnlag: BigDecimal,
+            er6GBegrenset: Boolean,
+            lovreferanser: List<Lovreferanse>,
+        ) = Sykepengegrunnlag(
+            id = id,
+            fødselsnummer = fødselsnummer,
+            skjæringstidspunkt = skjæringstidspunkt,
+            rettighetskategoriId = rettighetskategoriId,
+            opphav = opphav,
+            arbeidsgivere = arbeidsgivere,
+            selvstendig = selvstendig,
+            grunnbeløp = grunnbeløp,
+            seksG = seksG,
+            beregningsgrunnlag = beregningsgrunnlag,
+            sykepengegrunnlag = sykepengegrunnlag,
+            er6GBegrenset = er6GBegrenset,
+            lovreferanser = lovreferanser,
+        )
+
+        private fun beregn(
+            fødselsnummer: Identitetsnummer,
+            skjæringstidspunkt: LocalDate,
+            rettighetskategoriId: RettighetskategoriId,
+            arbeidsgivere: List<Arbeidsgiverinntekt>,
+            selvstendig: Selvstendiginntekt?,
+            grunnbeløp: BigDecimal,
+        ): Sykepengegrunnlag {
+            val seksG = grunnbeløp * BigDecimal(6)
+            val beregningsgrunnlag = selvstendig?.beregningsgrunnlag ?: arbeidsgivere.fold(BigDecimal.ZERO) { sum, arbeidsgiver -> sum + arbeidsgiver.omregnetÅrsinntekt }
             return Sykepengegrunnlag(
                 id = Id(UUID.randomUUID()),
                 fødselsnummer = fødselsnummer,
                 skjæringstidspunkt = skjæringstidspunkt,
                 rettighetskategoriId = rettighetskategoriId,
                 opphav = Opphav.VILKÅRSPRØVING,
-                arbeidsgivere = emptyList(),
-                selvstendig = Selvstendiginntekt(søknad, anvendtGrunnbeløp = grunnbeløp),
+                arbeidsgivere = arbeidsgivere,
+                selvstendig = selvstendig,
                 grunnbeløp = grunnbeløp,
+                seksG = seksG,
+                beregningsgrunnlag = beregningsgrunnlag,
+                sykepengegrunnlag = minOf(beregningsgrunnlag, seksG),
+                er6GBegrenset = beregningsgrunnlag > seksG,
+                lovreferanser =
+                    listOfNotNull(
+                        Lovreferanse.`§ 8-28 tredje avsnitt, bokstav a`().takeIf { arbeidsgivere.any { it.inntektskilde == Inntektskilde.A_ORDNINGEN } },
+                        Lovreferanse.`§ 8-10 andre avsnitt, første setning`(),
+                        selvstendig?.let { Lovreferanse.`§ 8-35 andre avsnitt`() },
+                    ),
             )
         }
 
