@@ -67,6 +67,25 @@ internal class PgSykepengegrunnlagRepositoryTest {
     }
 
     @Test
+    fun `lagrer den overstyrte inntekten og ID-en til overstyringen`() {
+        val forrige = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        val overstyringId = OverstyringId(UUID.randomUUID())
+        val overstyrt = checkNotNull(forrige.overstyrInntekt(overstyringId, listOf(Inntektsoverstyring(forrige.arbeidsgivere.single().orgnummer, BigDecimal("372000")))))
+        sessionOf(TestDatabase.dataSource).use { session ->
+            session.transaction { PgSykepengegrunnlagRepository(it).lagre(overstyrt, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
+        }
+
+        val lagret = checkNotNull(finnNyesteUtenomBackfillOrNull())
+
+        assertEquals(overstyrt.id, lagret.id)
+        assertEquals(Opphav.OVERSTYRING_INNTEKT, lagret.opphav)
+        assertEquals(OverstyrtInntekt(overstyringId, BigDecimal("372000.00")), lagret.arbeidsgivere.single().overstyrtInntekt)
+        assertEquals(forrige.arbeidsgivere.single().omregnetÅrsinntekt.setScale(2), lagret.arbeidsgivere.single().omregnetÅrsinntekt)
+        assertEquals(BigDecimal("372000.00"), lagret.beregningsgrunnlag)
+        assertEquals(2, TestDatabase.grunnlag().size)
+    }
+
+    @Test
     fun `endringer bygger på det nyeste grunnlaget, også når det kommer fra backfill`() {
         val vilkårsprøving = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
         val backfill = vilkårsprøving.somBackfill()

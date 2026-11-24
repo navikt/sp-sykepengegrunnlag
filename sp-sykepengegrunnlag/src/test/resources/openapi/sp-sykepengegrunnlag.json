@@ -88,6 +88,20 @@
   },
   "components" : {
     "schemas" : {
+      "ApiOverstyrtInntekt" : {
+        "type" : [ "object", "null" ],
+        "title" : "ApiOverstyrtInntekt",
+        "required" : [ "overstyringId", "årsinntekt" ],
+        "properties" : {
+          "overstyringId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "årsinntekt" : {
+            "type" : "number"
+          }
+        }
+      },
       "ApiSkatteopplysning" : {
         "type" : "object",
         "title" : "ApiSkatteopplysning",
@@ -159,6 +173,9 @@
           },
           "orgnummer" : {
             "type" : "string"
+          },
+          "overstyrtInntekt" : {
+            "$ref" : "#/components/schemas/ApiOverstyrtInntekt"
           },
           "skatteopplysninger" : {
             "type" : "array",
@@ -282,7 +299,7 @@
           },
           "opphav" : {
             "type" : "string",
-            "enum" : [ "VILKARSPROVING", "SKJONNSFASTSETTELSE", "BACKFILL_SPLEIS", "BACKFILL_INFOTRYGD" ]
+            "enum" : [ "VILKARSPROVING", "OVERSTYRING_INNTEKT", "SKJONNSFASTSETTELSE", "BACKFILL_SPLEIS", "BACKFILL_INFOTRYGD" ]
           },
           "rettighetskategoriId" : {
             "type" : "string",

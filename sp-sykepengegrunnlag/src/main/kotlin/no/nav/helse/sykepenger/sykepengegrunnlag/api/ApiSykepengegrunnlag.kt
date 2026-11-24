@@ -33,7 +33,7 @@ internal data class ApiSykepengegrunnlag(
     val lovreferanser: List<ApiLovreferanse>,
 )
 
-internal enum class ApiOpphav { VILKARSPROVING, SKJONNSFASTSETTELSE, BACKFILL_SPLEIS, BACKFILL_INFOTRYGD }
+internal enum class ApiOpphav { VILKARSPROVING, OVERSTYRING_INNTEKT, SKJONNSFASTSETTELSE, BACKFILL_SPLEIS, BACKFILL_INFOTRYGD }
 
 internal data class ApiArbeidsgiverinntekt(
     val orgnummer: String,
@@ -44,8 +44,15 @@ internal data class ApiArbeidsgiverinntekt(
     val aOrdningenHentet: Instant?,
     val skatteopplysninger: List<ApiSkatteopplysning>,
     val omregnetÅrsinntekt: BigDecimal,
+    val overstyrtInntekt: ApiOverstyrtInntekt?,
     val skjønnsfastsatt: ApiSkjønnsfastsatt?,
     val fastsattÅrsinntekt: BigDecimal,
+)
+
+internal data class ApiOverstyrtInntekt(
+    val overstyringId: UUID,
+    @get:JsonProperty("årsinntekt")
+    val årsinntekt: BigDecimal,
 )
 
 internal enum class ApiInntektskilde { INNTEKTSMELDING, A_ORDNINGEN }
@@ -116,6 +123,7 @@ private fun Sykepengegrunnlag.tilApi() =
 private fun Opphav.tilApi() =
     when (this) {
         Opphav.VILKÅRSPRØVING -> ApiOpphav.VILKARSPROVING
+        Opphav.OVERSTYRING_INNTEKT -> ApiOpphav.OVERSTYRING_INNTEKT
         Opphav.SKJØNNSFASTSETTELSE -> ApiOpphav.SKJONNSFASTSETTELSE
         Opphav.BACKFILL_SPLEIS -> ApiOpphav.BACKFILL_SPLEIS
         Opphav.BACKFILL_INFOTRYGD -> ApiOpphav.BACKFILL_INFOTRYGD
@@ -135,6 +143,7 @@ private fun Arbeidsgiverinntekt.tilApi() =
         aOrdningenHentet = aOrdningenHentet,
         skatteopplysninger = skatteopplysninger.map { it.tilApi() },
         omregnetÅrsinntekt = omregnetÅrsinntekt,
+        overstyrtInntekt = overstyrtInntekt?.let { ApiOverstyrtInntekt(it.overstyringId.uuid, it.årsinntekt) },
         skjønnsfastsatt = skjønnsfastsatt?.let { ApiSkjønnsfastsatt(it.skjønnsfastsettelseId.uuid, it.årsinntekt) },
         fastsattÅrsinntekt = fastsattÅrsinntekt,
     )

@@ -170,6 +170,22 @@ internal data class Skjønnsfastsatt(
     val årsinntekt: BigDecimal,
 )
 
+@JvmInline
+internal value class OverstyringId(
+    val uuid: UUID,
+)
+
+/** Årsinntekten saksbehandler har satt for én arbeidsgiver ved overstyring av inntekt. */
+internal data class Inntektsoverstyring(
+    val orgnummer: Organisasjonsnummer,
+    val årsinntekt: BigDecimal,
+)
+
+internal data class OverstyrtInntekt(
+    val overstyringId: OverstyringId,
+    val årsinntekt: BigDecimal,
+)
+
 internal data class Arbeidsgiverinntekt(
     val orgnummer: Organisasjonsnummer,
     val inntektskilde: Inntektskilde,
@@ -179,9 +195,12 @@ internal data class Arbeidsgiverinntekt(
     val aOrdningsoppslagId: AOrdningsoppslag.Id?,
     val aOrdningenHentet: Instant?,
     val omregnetÅrsinntekt: BigDecimal,
+    val overstyrtInntekt: OverstyrtInntekt?,
     val skjønnsfastsatt: Skjønnsfastsatt?,
 ) {
-    val fastsattÅrsinntekt = skjønnsfastsatt?.årsinntekt ?: omregnetÅrsinntekt
+    /** Det Spleis kaller `omregnetÅrsinntekt` i `ArbeidsgiverInntektsopplysning`: overstyrt inntekt, ellers omregnet årsinntekt. */
+    val overstyrtEllerOmregnetÅrsinntekt = overstyrtInntekt?.årsinntekt ?: omregnetÅrsinntekt
+    val fastsattÅrsinntekt = skjønnsfastsatt?.årsinntekt ?: overstyrtEllerOmregnetÅrsinntekt
 
     companion object {
         fun fraInntektsmelding(inntektsmelding: Inntektsmelding) =
@@ -193,7 +212,8 @@ internal data class Arbeidsgiverinntekt(
                 skatteopplysninger = emptyList(),
                 aOrdningsoppslagId = null,
                 aOrdningenHentet = null,
-                omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * BigDecimal(12),
+                omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * MÅNEDER_I_ÅRET,
+                overstyrtInntekt = null,
                 skjønnsfastsatt = null,
             )
 
@@ -220,7 +240,8 @@ internal data class Arbeidsgiverinntekt(
                 skatteopplysninger = skatteopplysninger,
                 aOrdningsoppslagId = oppslag.id,
                 aOrdningenHentet = oppslag.hentet,
-                omregnetÅrsinntekt = (gjennomsnittPerMåned * BigDecimal(12)).setScale(2, RoundingMode.HALF_UP),
+                omregnetÅrsinntekt = (gjennomsnittPerMåned * MÅNEDER_I_ÅRET).setScale(2, RoundingMode.HALF_UP),
+                overstyrtInntekt = null,
                 skjønnsfastsatt = null,
             )
         }
@@ -231,6 +252,9 @@ internal data class Arbeidsgiverinntekt(
         }
 
         private const val MÅNEDER_I_BEREGNINGSPERIODEN = 3L
+
+        /** Månedsinntekt regnes om til årsinntekt ved å gange med 12, som `Inntekt.månedlig` i Spleis. */
+        val MÅNEDER_I_ÅRET = BigDecimal(12)
     }
 }
 
@@ -241,6 +265,7 @@ internal enum class Inntektskilde {
 
 internal enum class Opphav {
     VILKÅRSPRØVING,
+    OVERSTYRING_INNTEKT,
     SKJØNNSFASTSETTELSE,
     BACKFILL_SPLEIS,
     BACKFILL_INFOTRYGD,
@@ -292,6 +317,39 @@ internal class Sykepengegrunnlag private constructor(
             arbeidsgivere =
                 arbeidsgivere.map {
                     it.copy(skjønnsfastsatt = Skjønnsfastsatt(skjønnsfastsettelseId, fastsettelsePerOrgnummer.getValue(it.orgnummer).årsinntekt))
+                },
+        )
+    }
+
+    /**
+     * Kopiert fra `ArbeidsgiverInntektsopplysning.håndterKorrigerteInntekter` og `Inntektsgrunnlag.Utfall.bestem` i Spleis. Spesialist sender
+     * inntekt og refusjon i samme melding, så en arbeidsgiver der overstyringen har samme beløp som før, er uendret. Er ingen arbeidsgivere
+     * endret, blir det ikke noe nytt grunnlag. Endres beløpet for minst én arbeidsgiver, nullstilles skjønnsfastsettelsen for alle, fordi den
+     * gjelder hele grunnlaget. Overstyringer for arbeidsgivere som ikke er i grunnlaget, ignoreres.
+     */
+    fun overstyrInntekt(
+        overstyringId: OverstyringId,
+        overstyringer: List<Inntektsoverstyring>,
+    ): Sykepengegrunnlag? {
+        val overstyringPerOrgnummer = overstyringer.associateBy { it.orgnummer }
+        val endrede =
+            arbeidsgivere
+                .filter { arbeidsgiver ->
+                    val overstyring = overstyringPerOrgnummer[arbeidsgiver.orgnummer] ?: return@filter false
+                    overstyring.årsinntekt.compareTo(arbeidsgiver.overstyrtEllerOmregnetÅrsinntekt) != 0
+                }.map { it.orgnummer }
+                .toSet()
+        if (endrede.isEmpty()) return null
+        return endre(
+            opphav = Opphav.OVERSTYRING_INNTEKT,
+            manuellVurdering = true,
+            arbeidsgivere =
+                arbeidsgivere.map {
+                    if (it.orgnummer !in endrede) return@map it.copy(skjønnsfastsatt = null)
+                    it.copy(
+                        overstyrtInntekt = OverstyrtInntekt(overstyringId, overstyringPerOrgnummer.getValue(it.orgnummer).årsinntekt),
+                        skjønnsfastsatt = null,
+                    )
                 },
         )
     }

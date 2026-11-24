@@ -142,6 +142,7 @@ internal class PgSykepengegrunnlagRepository(
             aOrdningsoppslagId = aOrdningsoppslagId?.let { AOrdningsoppslag.Id(it) },
             aOrdningenHentet = aOrdningenHentet,
             omregnetÅrsinntekt = omregnetÅrsinntekt,
+            overstyrtInntekt = overstyrtInntekt?.let { OverstyrtInntekt(OverstyringId(it.overstyringId), it.beløp) },
             skjønnsfastsatt = skjønnsfastsatt?.let { Skjønnsfastsatt(SkjønnsfastsettelseId(it.skjønnsfastsettelseId), it.beløp) },
         )
 
@@ -353,6 +354,7 @@ internal class PgSykepengegrunnlagRepository(
             aOrdningsoppslagId = aOrdningsoppslagId?.uuid,
             aOrdningenHentet = aOrdningenHentet,
             omregnetÅrsinntekt = omregnetÅrsinntekt.tilDesimal(),
+            overstyrtInntekt = overstyrtInntekt?.let { OverstyrtInntektDto(it.overstyringId.uuid, it.årsinntekt.tilDesimal()) },
             skjønnsfastsatt = skjønnsfastsatt?.let { SkjønnsfastsattDto(it.skjønnsfastsettelseId.uuid, it.årsinntekt.tilDesimal()) },
             skatteopplysninger =
                 skatteopplysninger.map {
@@ -411,8 +413,14 @@ private data class ArbeidsgiverinntektDto(
     val aOrdningsoppslagId: UUID?,
     val aOrdningenHentet: Instant?,
     val omregnetÅrsinntekt: BigDecimal,
+    val overstyrtInntekt: OverstyrtInntektDto? = null,
     val skjønnsfastsatt: SkjønnsfastsattDto? = null,
     val skatteopplysninger: List<SkatteopplysningDto>,
+)
+
+private data class OverstyrtInntektDto(
+    val overstyringId: UUID,
+    val beløp: BigDecimal,
 )
 
 private data class SkjønnsfastsattDto(

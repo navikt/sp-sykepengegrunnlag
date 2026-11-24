@@ -93,6 +93,22 @@ internal class SammenligningTest {
     }
 
     @Test
+    fun `overstyrt inntekt sammenlignes som omregnet årsinntekt med kilden Saksbehandler, slik Spleis viser den`() {
+        val grunnlag =
+            checkNotNull(
+                grunnlag(arbeidsgiver(A1, "360000")).overstyrInntekt(OverstyringId(UUID.randomUUID()), listOf(Inntektsoverstyring(A1, BigDecimal("372000")))),
+            )
+
+        val sammenligning =
+            Sammenligning.sammenlign(
+                grunnlag,
+                spleis(sykepengegrunnlag = "372000", arbeidsgivere = listOf(spleisArbeidsgiver(A1, "372000", inntektskilde = "Saksbehandler"))),
+            )
+
+        assertInstanceOf(Sammenligning.Lik::class.java, sammenligning)
+    }
+
+    @Test
     fun `arbeidsgivere som bare finnes på den ene siden, er en forskjell`() {
         val grunnlag = grunnlag(arbeidsgiver(A1, "360000"))
 
@@ -205,6 +221,7 @@ internal class SammenligningTest {
         aOrdningsoppslagId = null,
         aOrdningenHentet = null,
         omregnetÅrsinntekt = BigDecimal(omregnetÅrsinntekt),
+        overstyrtInntekt = null,
         skjønnsfastsatt = null,
     )
 

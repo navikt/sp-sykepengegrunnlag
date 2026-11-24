@@ -83,8 +83,8 @@ internal data class Sykepengegrunnlagsfakta(
                     grunnlag.arbeidsgivere.map {
                         Arbeidsgiver(
                             orgnummer = it.orgnummer,
-                            omregnetÅrsinntekt = beløp(it.omregnetÅrsinntekt),
-                            inntektskilde = if (it.skjønnsfastsatt != null) SAKSBEHANDLER else it.inntektskilde.iSpleis,
+                            omregnetÅrsinntekt = beløp(it.overstyrtEllerOmregnetÅrsinntekt),
+                            inntektskilde = if (it.skjønnsfastsatt != null || it.overstyrtInntekt != null) SAKSBEHANDLER else it.inntektskilde.iSpleis,
                             skjønnsfastsatt = it.skjønnsfastsatt?.let { skjønnsfastsatt -> beløp(skjønnsfastsatt.årsinntekt) },
                         )
                     },

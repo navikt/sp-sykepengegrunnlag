@@ -10,7 +10,8 @@ import javax.sql.DataSource
 
 /**
  * Endringer i grunnlaget etter vilkårsprøvingen går gjennom sp-sykepengegrunnlag (ADR 0020). Endringer for skjæringstidspunkter uten
- * grunnlag, for eksempel fra før skyggedriften, telles og ignoreres i stedet for å feile.
+ * grunnlag, for eksempel fra før skyggedriften, telles og ignoreres i stedet for å feile. Gir endringen ikke noe nytt grunnlag, for eksempel
+ * fordi inntekten er den samme som før, lagres og sendes ingenting.
  */
 internal class Sykepengegrunnlagsendring(
     private val dataSource: DataSource,
@@ -21,22 +22,33 @@ internal class Sykepengegrunnlagsendring(
         opphav: Opphav,
         context: MessageContext,
         meterRegistry: MeterRegistry,
-        endring: (forrige: Sykepengegrunnlag) -> Sykepengegrunnlag,
+        endring: (forrige: Sykepengegrunnlag) -> Sykepengegrunnlag?,
     ) {
-        val nytt =
+        val (forrige, nytt) =
             sessionOf(dataSource).use { session ->
                 session.transaction { tx ->
                     val repository = PgSykepengegrunnlagRepository(tx)
-                    repository.finnNyesteOrNull(fødselsnummer, skjæringstidspunkt)?.let(endring)?.also {
-                        repository.lagre(it, inntektsmeldinger = emptyList(), aOrdningsoppslag = null)
-                    }
+                    val forrige = repository.finnNyesteOrNull(fødselsnummer, skjæringstidspunkt)
+                    forrige to
+                        forrige?.let(endring)?.also {
+                            repository.lagre(it, inntektsmeldinger = emptyList(), aOrdningsoppslag = null)
+                        }
                 }
             }
-        if (nytt == null) {
+        if (forrige == null) {
             meterRegistry.counter(METRIKK_UTEN_GRUNNLAG, "opphav", opphav.iMeldinger).increment()
             loggInfo(
                 "Ignorerer endring av sykepengegrunnlaget fordi det ikke finnes noe grunnlag for skjæringstidspunktet",
                 "opphav" to opphav.iMeldinger,
+                "skjæringstidspunkt" to skjæringstidspunkt.toString(),
+            )
+            return
+        }
+        if (nytt == null) {
+            loggInfo(
+                "Endringen gir ikke noe nytt sykepengegrunnlag",
+                "opphav" to opphav.iMeldinger,
+                "sykepengegrunnlagId" to forrige.id.uuid.toString(),
                 "skjæringstidspunkt" to skjæringstidspunkt.toString(),
             )
             return
