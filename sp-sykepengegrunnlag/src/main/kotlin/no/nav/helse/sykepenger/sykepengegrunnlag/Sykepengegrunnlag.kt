@@ -186,6 +186,12 @@ internal data class OverstyrtInntekt(
     val årsinntekt: BigDecimal,
 )
 
+/** Saksbehandler har deaktivert eller aktivert ett arbeidsforhold i grunnlaget. */
+internal data class Arbeidsforholdoverstyring(
+    val orgnummer: Organisasjonsnummer,
+    val deaktivert: Boolean,
+)
+
 internal data class Arbeidsgiverinntekt(
     val orgnummer: Organisasjonsnummer,
     val inntektskilde: Inntektskilde,
@@ -197,10 +203,12 @@ internal data class Arbeidsgiverinntekt(
     val omregnetÅrsinntekt: BigDecimal,
     val overstyrtInntekt: OverstyrtInntekt?,
     val skjønnsfastsatt: Skjønnsfastsatt?,
+    /** Saksbehandler har deaktivert arbeidsforholdet. Det er med i grunnlaget, men inntekten teller ikke med, som `deaktiverteArbeidsforhold` i Spleis. */
+    val deaktivert: Boolean,
 ) {
     /** Det Spleis kaller `omregnetÅrsinntekt` i `ArbeidsgiverInntektsopplysning`: overstyrt inntekt, ellers omregnet årsinntekt. */
     val overstyrtEllerOmregnetÅrsinntekt = overstyrtInntekt?.årsinntekt ?: omregnetÅrsinntekt
-    val fastsattÅrsinntekt = skjønnsfastsatt?.årsinntekt ?: overstyrtEllerOmregnetÅrsinntekt
+    val fastsattÅrsinntekt = if (deaktivert) BigDecimal.ZERO else skjønnsfastsatt?.årsinntekt ?: overstyrtEllerOmregnetÅrsinntekt
 
     companion object {
         fun fraInntektsmelding(inntektsmelding: Inntektsmelding) =
@@ -215,6 +223,7 @@ internal data class Arbeidsgiverinntekt(
                 omregnetÅrsinntekt = inntektsmelding.beregnetInntektMånedlig * MÅNEDER_I_ÅRET,
                 overstyrtInntekt = null,
                 skjønnsfastsatt = null,
+                deaktivert = false,
             )
 
         /** § 8-28 tredje ledd bokstav a: gjennomsnittet av de tre månedene før skjæringstidspunktet, regnet om til årsinntekt. */
@@ -243,6 +252,7 @@ internal data class Arbeidsgiverinntekt(
                 omregnetÅrsinntekt = (gjennomsnittPerMåned * MÅNEDER_I_ÅRET).setScale(2, RoundingMode.HALF_UP),
                 overstyrtInntekt = null,
                 skjønnsfastsatt = null,
+                deaktivert = false,
             )
         }
 
@@ -266,6 +276,7 @@ internal enum class Inntektskilde {
 internal enum class Opphav {
     VILKÅRSPRØVING,
     OVERSTYRING_INNTEKT,
+    OVERSTYRING_ARBEIDSFORHOLD,
     SKJØNNSFASTSETTELSE,
     BACKFILL_SPLEIS,
     BACKFILL_INFOTRYGD,
@@ -299,16 +310,20 @@ internal class Sykepengegrunnlag private constructor(
     private val _hendelser = mutableListOf<EndretSykepengegrunnlag>()
     val hendelser: List<EndretSykepengegrunnlag> get() = _hendelser.toList()
 
+    /** Arbeidsgiverne som teller med i grunnlaget, som `arbeidsgiverInntektsopplysninger` i Spleis. */
+    val aktiveArbeidsgivere get() = arbeidsgivere.filterNot { it.deaktivert }
+
     /**
-     * Kopiert fra `Inntektsgrunnlag.skjønnsmessigFastsettelse` i Spleis: alle arbeidsgiverne i grunnlaget må skjønnsfastsettes,
-     * og grunnbeløpet beholdes.
+     * Kopiert fra `Inntektsgrunnlag.skjønnsmessigFastsettelse` i Spleis: alle de aktive arbeidsgiverne i grunnlaget må skjønnsfastsettes,
+     * og grunnbeløpet beholdes. Deaktiverte arbeidsforhold skjønnsfastsettes ikke.
      */
     fun skjønnsfastsett(
         skjønnsfastsettelseId: SkjønnsfastsettelseId,
         fastsettelser: List<Skjønnsfastsettelse>,
     ): Sykepengegrunnlag {
-        check(fastsettelser.map { it.orgnummer }.toSet() == arbeidsgivere.map { it.orgnummer }.toSet() && fastsettelser.size == arbeidsgivere.size) {
-            "Alle arbeidsgiverne i sykepengegrunnlaget må skjønnsfastsettes"
+        val aktive = aktiveArbeidsgivere
+        check(fastsettelser.map { it.orgnummer }.toSet() == aktive.map { it.orgnummer }.toSet() && fastsettelser.size == aktive.size) {
+            "Alle de aktive arbeidsgiverne i sykepengegrunnlaget må skjønnsfastsettes"
         }
         val fastsettelsePerOrgnummer = fastsettelser.associateBy { it.orgnummer }
         return endre(
@@ -316,6 +331,7 @@ internal class Sykepengegrunnlag private constructor(
             manuellVurdering = true,
             arbeidsgivere =
                 arbeidsgivere.map {
+                    if (it !in aktive) return@map it
                     it.copy(skjønnsfastsatt = Skjønnsfastsatt(skjønnsfastsettelseId, fastsettelsePerOrgnummer.getValue(it.orgnummer).årsinntekt))
                 },
         )
@@ -325,7 +341,7 @@ internal class Sykepengegrunnlag private constructor(
      * Kopiert fra `ArbeidsgiverInntektsopplysning.håndterKorrigerteInntekter` og `Inntektsgrunnlag.Utfall.bestem` i Spleis. Spesialist sender
      * inntekt og refusjon i samme melding, så en arbeidsgiver der overstyringen har samme beløp som før, er uendret. Er ingen arbeidsgivere
      * endret, blir det ikke noe nytt grunnlag. Endres beløpet for minst én arbeidsgiver, nullstilles skjønnsfastsettelsen for alle, fordi den
-     * gjelder hele grunnlaget. Overstyringer for arbeidsgivere som ikke er i grunnlaget, ignoreres.
+     * gjelder hele grunnlaget. Overstyringer for arbeidsgivere som ikke er i grunnlaget eller er deaktivert, ignoreres.
      */
     fun overstyrInntekt(
         overstyringId: OverstyringId,
@@ -333,7 +349,7 @@ internal class Sykepengegrunnlag private constructor(
     ): Sykepengegrunnlag? {
         val overstyringPerOrgnummer = overstyringer.associateBy { it.orgnummer }
         val endrede =
-            arbeidsgivere
+            aktiveArbeidsgivere
                 .filter { arbeidsgiver ->
                     val overstyring = overstyringPerOrgnummer[arbeidsgiver.orgnummer] ?: return@filter false
                     overstyring.årsinntekt.compareTo(arbeidsgiver.overstyrtEllerOmregnetÅrsinntekt) != 0
@@ -352,6 +368,38 @@ internal class Sykepengegrunnlag private constructor(
                     )
                 },
         )
+    }
+
+    /**
+     * Kopiert fra `Inntektsgrunnlag.deaktiver` og `Inntektsgrunnlag.aktiver` i Spleis. Et arbeidsforhold som allerede er deaktivert eller
+     * aktivert, er uendret. Er ingen arbeidsforhold endret, blir det ikke noe nytt grunnlag. Endres minst ett, nullstilles
+     * skjønnsfastsettelsen for alle, fordi den gjelder hele grunnlaget. Arbeidsforhold som ikke er i grunnlaget, ignoreres.
+     */
+    fun overstyrArbeidsforhold(overstyringer: List<Arbeidsforholdoverstyring>): Sykepengegrunnlag? {
+        val overstyringPerOrgnummer = overstyringer.associateBy { it.orgnummer }
+        val endrede =
+            arbeidsgivere
+                .filter { arbeidsgiver ->
+                    val overstyring = overstyringPerOrgnummer[arbeidsgiver.orgnummer] ?: return@filter false
+                    overstyring.deaktivert != arbeidsgiver.deaktivert
+                }.map { it.orgnummer }
+                .toSet()
+        if (endrede.isEmpty()) return null
+        return endre(
+            opphav = Opphav.OVERSTYRING_ARBEIDSFORHOLD,
+            manuellVurdering = true,
+            arbeidsgivere =
+                arbeidsgivere.map {
+                    if (it.orgnummer !in endrede) return@map it.copy(skjønnsfastsatt = null)
+                    it.copy(deaktivert = !it.deaktivert, skjønnsfastsatt = null)
+                },
+        )
+    }
+
+    /** Arbeidsforholdene i overstyringene som ikke er i grunnlaget. */
+    fun ukjenteArbeidsforhold(overstyringer: List<Arbeidsforholdoverstyring>): List<Organisasjonsnummer> {
+        val kjente = arbeidsgivere.map { it.orgnummer }.toSet()
+        return overstyringer.map { it.orgnummer }.filterNot { it in kjente }
     }
 
     private fun endre(

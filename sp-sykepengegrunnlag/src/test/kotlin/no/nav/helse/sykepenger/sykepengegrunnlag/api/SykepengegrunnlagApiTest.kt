@@ -103,6 +103,7 @@ internal class SykepengegrunnlagApiTest {
             val arbeidsgiver = nyeste["arbeidsgivere"].single()
             assertEquals(orgnummer, arbeidsgiver["orgnummer"].asString())
             assertEquals("INNTEKTSMELDING", arbeidsgiver["inntektskilde"].asString())
+            assertEquals(false, arbeidsgiver["deaktivert"].asBoolean())
             assertEquals(BigDecimal("360000.00").stripTrailingZeros(), arbeidsgiver["omregnetÅrsinntekt"].decimalValue().stripTrailingZeros())
             assertEquals(BigDecimal("400000.00").stripTrailingZeros(), arbeidsgiver["fastsattÅrsinntekt"].decimalValue().stripTrailingZeros())
             assertEquals(skjønnsfastsettelseId.toString(), arbeidsgiver["skjønnsfastsatt"]["skjønnsfastsettelseId"].asString())

@@ -312,6 +312,20 @@ internal object TestDatabase {
         }
     }
 
+    fun fjernLagretFelt(
+        sykepengegrunnlagId: UUID,
+        sti: String,
+    ) {
+        sessionOf(dataSource).use { session ->
+            session.run(
+                queryOf(
+                    "UPDATE sykepengegrunnlag SET data = data #- CAST(:sti AS text[]) WHERE id = :id",
+                    mapOf("id" to sykepengegrunnlagId, "sti" to sti),
+                ).asUpdate,
+            )
+        }
+    }
+
     private fun <T> liste(
         @Language("PostgreSQL") sql: String,
         mapper: (kotliquery.Row) -> T,

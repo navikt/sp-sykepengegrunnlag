@@ -165,6 +165,112 @@ internal class SykepengegrunnlagTest {
         assertEquals(true, nytt.er6GBegrenset)
     }
 
+    @Test
+    fun `deaktivering gir et nytt grunnlag der arbeidsforholdet er med som deaktivert, med fastsatt årsinntekt 0`() {
+        val forrige = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+
+        val nytt = checkNotNull(forrige.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = true))))
+
+        assertNotEquals(forrige.id, nytt.id)
+        assertEquals(Opphav.OVERSTYRING_ARBEIDSFORHOLD, nytt.opphav)
+        assertEquals(listOf(false, true), nytt.arbeidsgivere.map { it.deaktivert })
+        assertEquals(0, BigDecimal("300000").compareTo(nytt.arbeidsgivere[0].fastsattÅrsinntekt))
+        assertEquals(0, BigDecimal.ZERO.compareTo(nytt.arbeidsgivere[1].fastsattÅrsinntekt))
+        assertEquals(0, BigDecimal("240000").compareTo(nytt.arbeidsgivere[1].omregnetÅrsinntekt))
+        assertEquals(0, BigDecimal("300000").compareTo(nytt.beregningsgrunnlag))
+        assertEquals(0, BigDecimal("300000").compareTo(nytt.sykepengegrunnlag))
+        assertEquals(
+            listOf(
+                EndretSykepengegrunnlag(
+                    fødselsnummer = FØDSELSNUMMER,
+                    skjæringstidspunkt = SKJÆRINGSTIDSPUNKT,
+                    sykepengegrunnlagId = nytt.id,
+                    forrigeSykepengegrunnlagId = forrige.id,
+                    opphav = Opphav.OVERSTYRING_ARBEIDSFORHOLD,
+                    manuellVurdering = true,
+                ),
+            ),
+            nytt.hendelser,
+        )
+    }
+
+    @Test
+    fun `aktivering teller arbeidsforholdet med igjen, med inntekten saksbehandler har overstyrt`() {
+        val deaktivert =
+            checkNotNull(
+                checkNotNull(
+                    lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+                        .overstyrInntekt(OVERSTYRING_ID, listOf(lagInntektsoverstyring(A2, "250000"))),
+                ).overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = true))),
+            )
+
+        val aktivert = checkNotNull(deaktivert.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = false))))
+
+        assertEquals(listOf(false, false), aktivert.arbeidsgivere.map { it.deaktivert })
+        assertEquals(0, BigDecimal("300000").compareTo(aktivert.arbeidsgivere[0].fastsattÅrsinntekt))
+        assertEquals(0, BigDecimal("250000").compareTo(aktivert.arbeidsgivere[1].fastsattÅrsinntekt))
+        assertEquals(0, BigDecimal("550000").compareTo(aktivert.beregningsgrunnlag))
+    }
+
+    @Test
+    fun `overstyring som ikke endrer noe arbeidsforhold i grunnlaget gir ikke noe nytt grunnlag`() {
+        val forrige = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+        val deaktivert = checkNotNull(forrige.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = true))))
+
+        assertEquals(null, forrige.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = false))))
+        assertEquals(null, deaktivert.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = true))))
+        assertEquals(null, forrige.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A3, deaktivert = true))))
+    }
+
+    @Test
+    fun `overstyring av arbeidsforhold nullstiller skjønnsfastsettelsen for alle`() {
+        val skjønnsfastsatt =
+            lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+                .skjønnsfastsett(SKJØNNSFASTSETTELSE_ID, listOf(lagSkjønnsfastsettelse(A1, "350000"), lagSkjønnsfastsettelse(A2, "250000")))
+
+        val nytt = checkNotNull(skjønnsfastsatt.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = true))))
+
+        assertEquals(listOf(null, null), nytt.arbeidsgivere.map { it.skjønnsfastsatt })
+        assertEquals(0, BigDecimal("300000").compareTo(nytt.beregningsgrunnlag))
+    }
+
+    @Test
+    fun `overstyring av inntekt endrer ikke deaktiverte arbeidsforhold`() {
+        val deaktivert =
+            checkNotNull(
+                lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+                    .overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = true))),
+            )
+
+        assertEquals(null, deaktivert.overstyrInntekt(OVERSTYRING_ID, listOf(lagInntektsoverstyring(A2, "250000"))))
+    }
+
+    @Test
+    fun `skjønnsfastsettelse gjelder bare de aktive arbeidsforholdene`() {
+        val deaktivert =
+            checkNotNull(
+                lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+                    .overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2, deaktivert = true))),
+            )
+
+        val nytt = deaktivert.skjønnsfastsett(SKJØNNSFASTSETTELSE_ID, listOf(lagSkjønnsfastsettelse(A1, "350000")))
+
+        assertEquals(listOf(Skjønnsfastsatt(SKJØNNSFASTSETTELSE_ID, BigDecimal("350000")), null), nytt.arbeidsgivere.map { it.skjønnsfastsatt })
+        assertEquals(listOf(false, true), nytt.arbeidsgivere.map { it.deaktivert })
+        assertEquals(0, BigDecimal("350000").compareTo(nytt.beregningsgrunnlag))
+        assertThrows<IllegalStateException> {
+            deaktivert.skjønnsfastsett(SKJØNNSFASTSETTELSE_ID, listOf(lagSkjønnsfastsettelse(A1, "350000"), lagSkjønnsfastsettelse(A2, "250000")))
+        }
+    }
+
+    @Test
+    fun `finner arbeidsforholdene i overstyringen som ikke er i grunnlaget`() {
+        val grunnlag = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"))
+
+        assertEquals(listOf(A3), grunnlag.ukjenteArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A1), lagArbeidsforholdoverstyring(A3))))
+        assertEquals(emptyList<Organisasjonsnummer>(), grunnlag.ukjenteArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A1))))
+    }
+
     private fun lagGrunnlag(vararg arbeidsgivere: Arbeidsgiverinntekt) =
         Sykepengegrunnlag.fastsett(
             fødselsnummer = FØDSELSNUMMER,
@@ -192,6 +298,11 @@ internal class SykepengegrunnlagTest {
         orgnummer: Organisasjonsnummer,
         årlig: String,
     ) = Skjønnsfastsettelse(orgnummer, BigDecimal(årlig))
+
+    private fun lagArbeidsforholdoverstyring(
+        orgnummer: Organisasjonsnummer,
+        deaktivert: Boolean = true,
+    ) = Arbeidsforholdoverstyring(orgnummer, deaktivert)
 
     private fun lagInntektsoverstyring(
         orgnummer: Organisasjonsnummer,

@@ -144,6 +144,7 @@ internal class PgSykepengegrunnlagRepository(
             omregnetÅrsinntekt = omregnetÅrsinntekt,
             overstyrtInntekt = overstyrtInntekt?.let { OverstyrtInntekt(OverstyringId(it.overstyringId), it.beløp) },
             skjønnsfastsatt = skjønnsfastsatt?.let { Skjønnsfastsatt(SkjønnsfastsettelseId(it.skjønnsfastsettelseId), it.beløp) },
+            deaktivert = deaktivert,
         )
 
     private fun SelvstendiginntektDto.tilSelvstendiginntekt(grunnlag: SykepengegrunnlagDto) =
@@ -356,6 +357,7 @@ internal class PgSykepengegrunnlagRepository(
             omregnetÅrsinntekt = omregnetÅrsinntekt.tilDesimal(),
             overstyrtInntekt = overstyrtInntekt?.let { OverstyrtInntektDto(it.overstyringId.uuid, it.årsinntekt.tilDesimal()) },
             skjønnsfastsatt = skjønnsfastsatt?.let { SkjønnsfastsattDto(it.skjønnsfastsettelseId.uuid, it.årsinntekt.tilDesimal()) },
+            deaktivert = deaktivert,
             skatteopplysninger =
                 skatteopplysninger.map {
                     SkatteopplysningDto(
@@ -415,6 +417,7 @@ private data class ArbeidsgiverinntektDto(
     val omregnetÅrsinntekt: BigDecimal,
     val overstyrtInntekt: OverstyrtInntektDto? = null,
     val skjønnsfastsatt: SkjønnsfastsattDto? = null,
+    val deaktivert: Boolean = false,
     val skatteopplysninger: List<SkatteopplysningDto>,
 )
 

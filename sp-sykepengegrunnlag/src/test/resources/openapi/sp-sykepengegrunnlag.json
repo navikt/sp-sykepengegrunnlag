@@ -143,7 +143,7 @@
       "ApiArbeidsgiverinntekt" : {
         "type" : "object",
         "title" : "ApiArbeidsgiverinntekt",
-        "required" : [ "fastsattÅrsinntekt", "inntektskilde", "omregnetÅrsinntekt", "orgnummer", "skatteopplysninger" ],
+        "required" : [ "deaktivert", "fastsattÅrsinntekt", "inntektskilde", "omregnetÅrsinntekt", "orgnummer", "skatteopplysninger" ],
         "properties" : {
           "aOrdningenHentet" : {
             "type" : [ "string", "null" ],
@@ -152,6 +152,9 @@
           "aOrdningsoppslagId" : {
             "type" : [ "string", "null" ],
             "format" : "uuid"
+          },
+          "deaktivert" : {
+            "type" : "boolean"
           },
           "fastsattÅrsinntekt" : {
             "type" : "number"
@@ -299,7 +302,7 @@
           },
           "opphav" : {
             "type" : "string",
-            "enum" : [ "VILKARSPROVING", "OVERSTYRING_INNTEKT", "SKJONNSFASTSETTELSE", "BACKFILL_SPLEIS", "BACKFILL_INFOTRYGD" ]
+            "enum" : [ "VILKARSPROVING", "OVERSTYRING_INNTEKT", "OVERSTYRING_ARBEIDSFORHOLD", "SKJONNSFASTSETTELSE", "BACKFILL_SPLEIS", "BACKFILL_INFOTRYGD" ]
           },
           "rettighetskategoriId" : {
             "type" : "string",

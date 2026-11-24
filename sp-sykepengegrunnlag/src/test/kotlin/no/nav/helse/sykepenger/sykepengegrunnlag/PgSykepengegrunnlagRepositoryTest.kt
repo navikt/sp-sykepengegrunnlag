@@ -80,9 +80,40 @@ internal class PgSykepengegrunnlagRepositoryTest {
         assertEquals(overstyrt.id, lagret.id)
         assertEquals(Opphav.OVERSTYRING_INNTEKT, lagret.opphav)
         assertEquals(OverstyrtInntekt(overstyringId, BigDecimal("372000.00")), lagret.arbeidsgivere.single().overstyrtInntekt)
-        assertEquals(forrige.arbeidsgivere.single().omregnetÅrsinntekt.setScale(2), lagret.arbeidsgivere.single().omregnetÅrsinntekt)
+        assertEquals(
+            forrige.arbeidsgivere
+                .single()
+                .omregnetÅrsinntekt
+                .setScale(2),
+            lagret.arbeidsgivere.single().omregnetÅrsinntekt,
+        )
         assertEquals(BigDecimal("372000.00"), lagret.beregningsgrunnlag)
         assertEquals(2, TestDatabase.grunnlag().size)
+    }
+
+    @Test
+    fun `lagrer at arbeidsforholdet er deaktivert`() {
+        val forrige = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        val deaktivert = checkNotNull(forrige.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(forrige.arbeidsgivere.single().orgnummer))))
+        sessionOf(TestDatabase.dataSource).use { session ->
+            session.transaction { PgSykepengegrunnlagRepository(it).lagre(deaktivert, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
+        }
+
+        val lagret = checkNotNull(finnNyesteUtenomBackfillOrNull())
+
+        assertEquals(deaktivert.id, lagret.id)
+        assertEquals(Opphav.OVERSTYRING_ARBEIDSFORHOLD, lagret.opphav)
+        assertEquals(true, lagret.arbeidsgivere.single().deaktivert)
+        assertEquals(0, BigDecimal.ZERO.compareTo(lagret.arbeidsgivere.single().fastsattÅrsinntekt))
+        assertEquals(BigDecimal("0.00"), lagret.beregningsgrunnlag)
+    }
+
+    @Test
+    fun `arbeidsforhold i grunnlag lagret før deaktivering fantes, er aktive`() {
+        val grunnlag = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        TestDatabase.fjernLagretFelt(grunnlag.id.uuid, "{arbeidsgivere,0,deaktivert}")
+
+        assertEquals(false, checkNotNull(finnNyesteUtenomBackfillOrNull()).arbeidsgivere.single().deaktivert)
     }
 
     @Test
@@ -149,6 +180,11 @@ internal class PgSykepengegrunnlagRepositoryTest {
             er6GBegrenset = er6GBegrenset,
             lovreferanser = lovreferanser,
         )
+
+    private fun lagArbeidsforholdoverstyring(
+        orgnummer: Organisasjonsnummer,
+        deaktivert: Boolean = true,
+    ) = Arbeidsforholdoverstyring(orgnummer, deaktivert)
 
     private fun finnNyesteUtenomBackfillOrNull() =
         sessionOf(TestDatabase.dataSource).use { session ->

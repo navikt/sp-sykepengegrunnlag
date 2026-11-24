@@ -80,7 +80,7 @@ internal data class Sykepengegrunnlagsfakta(
                 seksG = beløp(grunnlag.seksG),
                 fastsatt = if (grunnlag.arbeidsgivere.any { it.skjønnsfastsatt != null }) "EtterSkjønn" else "EtterHovedregel",
                 arbeidsgivere =
-                    grunnlag.arbeidsgivere.map {
+                    grunnlag.aktiveArbeidsgivere.map {
                         Arbeidsgiver(
                             orgnummer = it.orgnummer,
                             omregnetÅrsinntekt = beløp(it.overstyrtEllerOmregnetÅrsinntekt),

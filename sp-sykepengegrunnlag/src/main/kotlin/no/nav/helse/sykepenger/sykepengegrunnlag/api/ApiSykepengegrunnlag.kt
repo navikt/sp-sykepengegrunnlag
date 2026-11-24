@@ -33,7 +33,7 @@ internal data class ApiSykepengegrunnlag(
     val lovreferanser: List<ApiLovreferanse>,
 )
 
-internal enum class ApiOpphav { VILKARSPROVING, OVERSTYRING_INNTEKT, SKJONNSFASTSETTELSE, BACKFILL_SPLEIS, BACKFILL_INFOTRYGD }
+internal enum class ApiOpphav { VILKARSPROVING, OVERSTYRING_INNTEKT, OVERSTYRING_ARBEIDSFORHOLD, SKJONNSFASTSETTELSE, BACKFILL_SPLEIS, BACKFILL_INFOTRYGD }
 
 internal data class ApiArbeidsgiverinntekt(
     val orgnummer: String,
@@ -46,6 +46,7 @@ internal data class ApiArbeidsgiverinntekt(
     val omregnetÅrsinntekt: BigDecimal,
     val overstyrtInntekt: ApiOverstyrtInntekt?,
     val skjønnsfastsatt: ApiSkjønnsfastsatt?,
+    val deaktivert: Boolean,
     val fastsattÅrsinntekt: BigDecimal,
 )
 
@@ -124,6 +125,7 @@ private fun Opphav.tilApi() =
     when (this) {
         Opphav.VILKÅRSPRØVING -> ApiOpphav.VILKARSPROVING
         Opphav.OVERSTYRING_INNTEKT -> ApiOpphav.OVERSTYRING_INNTEKT
+        Opphav.OVERSTYRING_ARBEIDSFORHOLD -> ApiOpphav.OVERSTYRING_ARBEIDSFORHOLD
         Opphav.SKJØNNSFASTSETTELSE -> ApiOpphav.SKJONNSFASTSETTELSE
         Opphav.BACKFILL_SPLEIS -> ApiOpphav.BACKFILL_SPLEIS
         Opphav.BACKFILL_INFOTRYGD -> ApiOpphav.BACKFILL_INFOTRYGD
@@ -145,6 +147,7 @@ private fun Arbeidsgiverinntekt.tilApi() =
         omregnetÅrsinntekt = omregnetÅrsinntekt,
         overstyrtInntekt = overstyrtInntekt?.let { ApiOverstyrtInntekt(it.overstyringId.uuid, it.årsinntekt) },
         skjønnsfastsatt = skjønnsfastsatt?.let { ApiSkjønnsfastsatt(it.skjønnsfastsettelseId.uuid, it.årsinntekt) },
+        deaktivert = deaktivert,
         fastsattÅrsinntekt = fastsattÅrsinntekt,
     )
 

@@ -109,6 +109,15 @@ internal class SammenligningTest {
     }
 
     @Test
+    fun `deaktiverte arbeidsforhold er ikke med, slik Spleis bare viser de aktive`() {
+        val grunnlag = checkNotNull(grunnlag(arbeidsgiver(A1, "360000"), arbeidsgiver(A2, "240000")).overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A2))))
+
+        val sammenligning = Sammenligning.sammenlign(grunnlag, spleis(sykepengegrunnlag = "360000", arbeidsgivere = listOf(spleisArbeidsgiver(A1, "360000"))))
+
+        assertInstanceOf(Sammenligning.Lik::class.java, sammenligning)
+    }
+
+    @Test
     fun `arbeidsgivere som bare finnes på den ene siden, er en forskjell`() {
         val grunnlag = grunnlag(arbeidsgiver(A1, "360000"))
 
@@ -223,7 +232,13 @@ internal class SammenligningTest {
         omregnetÅrsinntekt = BigDecimal(omregnetÅrsinntekt),
         overstyrtInntekt = null,
         skjønnsfastsatt = null,
+        deaktivert = false,
     )
+
+    private fun lagArbeidsforholdoverstyring(
+        orgnummer: Organisasjonsnummer,
+        deaktivert: Boolean = true,
+    ) = Arbeidsforholdoverstyring(orgnummer, deaktivert)
 
     private fun skatteopplysning(
         måned: YearMonth,
