@@ -11,6 +11,8 @@ import no.nav.sykepenger.libs.logging.MdcKey
 import no.nav.sykepenger.libs.logging.loggError
 import no.nav.sykepenger.libs.logging.medMdc
 import tools.jackson.databind.JsonNode
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.util.UUID
 
 /** Overstyringen av inntekt og refusjon fra Spesialist. Refusjonen hører ikke til sykepengegrunnlaget og leses ikke. */
@@ -47,7 +49,7 @@ internal class OverstyrInntektOgRefusjonRiver(
             packet["arbeidsgivere"].toList().map {
                 Inntektsoverstyring(
                     orgnummer = Organisasjonsnummer.fraString(it.path("organisasjonsnummer").asString()),
-                    årsinntekt = it.path("månedligInntekt").decimalValue() * Arbeidsgiverinntekt.MÅNEDER_I_ÅRET,
+                    årsinntekt = årsinntekt(it.path("månedligInntekt").decimalValue()),
                 )
             }
 
@@ -69,5 +71,11 @@ internal class OverstyrInntektOgRefusjonRiver(
 
     private companion object {
         const val EVENT = "overstyr_inntekt_og_refusjon"
+
+        /**
+         * Speil sender Spleis sin uavrundede `årlig / 12` (`Inntekt.månedlig`) som `Double`, for eksempel 30000.333333333332 for 360 004 kr.
+         * Avrundet til øre blir årsinntekten lik den vi har lagret, også når saksbehandleren bare endrer refusjonen.
+         */
+        fun årsinntekt(månedligInntekt: BigDecimal): BigDecimal = (månedligInntekt * Arbeidsgiverinntekt.MÅNEDER_I_ÅRET).setScale(2, RoundingMode.HALF_UP)
     }
 }

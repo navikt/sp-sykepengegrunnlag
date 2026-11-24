@@ -62,6 +62,28 @@ internal class OverstyrInntektOgRefusjonRiverTest {
     }
 
     @Test
+    fun `overstyring med Spleis sitt månedsbeløp for en årsinntekt som ikke går opp i 12 gir ikke noe nytt grunnlag`() {
+        val forrige = lagreGrunnlagFraAOrdningen("30000", "30000", "30001")
+        assertEquals(BigDecimal("360004.00"), forrige.arbeidsgivere.single().omregnetÅrsinntekt)
+
+        // Speil sender Spleis sin `årlig / 12` som Double når saksbehandleren bare endrer refusjonen
+        rapid.sendTestMessage(lagOverstyring(månedligInntekt = 360004.0 / 12), FØDSELSNUMMER)
+
+        assertEquals(forrige.id, finnNyeste()?.id)
+        assertEquals(0, rapid.inspektør.size)
+    }
+
+    @Test
+    fun `overstyring med Spleis sitt månedsbeløp for en årsinntekt med øre gir ikke noe nytt grunnlag`() {
+        val forrige = lagreGrunnlag(beregnetInntektMånedlig = "30000.10")
+
+        rapid.sendTestMessage(lagOverstyring(månedligInntekt = 360001.2 / 12), FØDSELSNUMMER)
+
+        assertEquals(forrige.id, finnNyeste()?.id)
+        assertEquals(0, rapid.inspektør.size)
+    }
+
+    @Test
     fun `teller og ignorerer overstyringen når det ikke finnes noe grunnlag`() {
         rapid.sendTestMessage(lagOverstyring(månedligInntekt = 31000.0), FØDSELSNUMMER)
 
@@ -85,16 +107,51 @@ internal class OverstyrInntektOgRefusjonRiverTest {
                 mottattDato = Instant.now(),
                 hentet = Instant.now(),
             )
+        return lagreGrunnlag(Arbeidsgiverinntekt.fraInntektsmelding(inntektsmelding), listOf(inntektsmelding), aOrdningsoppslag = null)
+    }
+
+    private fun lagreGrunnlagFraAOrdningen(vararg månedsbeløp: String): Sykepengegrunnlag {
+        val måneder = Arbeidsgiverinntekt.beregningsperiodeForAOrdningen(SKJÆRINGSTIDSPUNKT)
+        val oppslag =
+            AOrdningsoppslag(
+                id = AOrdningsoppslag.Id(UUID.randomUUID()),
+                måneder = måneder,
+                ainntektsfilter = "8-28Sykepenger",
+                inntekter =
+                    månedsbeløp.mapIndexed { index, beløp ->
+                        AOrdningsinntekt(
+                            virksomhet = ORGNUMMER,
+                            skatteopplysning =
+                                Skatteopplysning(
+                                    måned = måneder.start.plusMonths(index.toLong()),
+                                    beløp = BigDecimal(beløp),
+                                    type = Skatteopplysning.Inntekttype.LØNNSINNTEKT,
+                                    fordel = "kontantytelse",
+                                    beskrivelse = "fastloenn",
+                                ),
+                        )
+                    },
+                svar = "{}",
+                hentet = Instant.now(),
+            )
+        return lagreGrunnlag(Arbeidsgiverinntekt.fraAOrdningen(Organisasjonsnummer.fraString(ORGNUMMER), oppslag), emptyList(), oppslag)
+    }
+
+    private fun lagreGrunnlag(
+        arbeidsgiver: Arbeidsgiverinntekt,
+        inntektsmeldinger: List<Inntektsmelding>,
+        aOrdningsoppslag: AOrdningsoppslag?,
+    ): Sykepengegrunnlag {
         val grunnlag =
             Sykepengegrunnlag.fastsett(
                 fødselsnummer = Identitetsnummer.fraString(FØDSELSNUMMER),
                 skjæringstidspunkt = SKJÆRINGSTIDSPUNKT,
                 rettighetskategoriId = RettighetskategoriId(UUID.randomUUID()),
-                arbeidsgivere = listOf(Arbeidsgiverinntekt.fraInntektsmelding(inntektsmelding)),
+                arbeidsgivere = listOf(arbeidsgiver),
                 nå = Instant.now(),
             )
         sessionOf(TestDatabase.dataSource).use { session ->
-            session.transaction { PgSykepengegrunnlagRepository(it).lagre(grunnlag, listOf(inntektsmelding), null) }
+            session.transaction { PgSykepengegrunnlagRepository(it).lagre(grunnlag, inntektsmeldinger, aOrdningsoppslag) }
         }
         return grunnlag
     }
