@@ -8,7 +8,6 @@ import com.github.navikt.tbd_libs.kafka.ConsumerProducerFactory
 import com.github.navikt.tbd_libs.personpseudoid.PersonPseudoIdProvider
 import com.github.navikt.tbd_libs.personpseudoid.ValkeyPersonPseudoIdProvider
 import com.github.navikt.tbd_libs.populasjonstilgang.api.PopulasjonstilgangskontrollProvider
-import com.github.navikt.tbd_libs.populasjonstilgang.api.TilgangskontrollResultat
 import com.github.navikt.tbd_libs.populasjonstilgang.client.PopulasjonstilgangConfig
 import com.github.navikt.tbd_libs.populasjonstilgang.client.tilgangsmaskinenClient
 import com.github.navikt.tbd_libs.rapids_and_rivers_api.RapidsConnection
@@ -46,33 +45,8 @@ fun main() {
         rettighetskategoriClient = RettighetskategoriClient.fraMiljø(env, tokenProvider),
         inntektskomponentenClient = InntektskomponentenClient.fraMiljø(env, tokenProvider),
         personProvider = ValkeyPersonPseudoIdProvider.fraEnv("personpseudoid", env),
-        tilgangskontroll = tilgangskontrollFraEnv(env),
+        tilgangskontroll = PopulasjonstilgangConfig.fraEnv(env).tilgangsmaskinenClient(TexasClient.fromEnv()),
     )
-}
-
-// Appen har ennå ikke fått tilgang til tilgangsmaskinen i dev, så der slipper vi alle gjennom inntil videre (navikt/sas-issues#392).
-private fun tilgangskontrollFraEnv(env: Map<String, String>): PopulasjonstilgangskontrollProvider =
-    if (env["NAIS_CLUSTER_NAME"] == "dev-gcp") {
-        TillatAltTilgangskontroll
-    } else {
-        PopulasjonstilgangConfig.fraEnv(env).tilgangsmaskinenClient(TexasClient.fromEnv())
-    }
-
-private object TillatAltTilgangskontroll : PopulasjonstilgangskontrollProvider {
-    override fun kontrollerKomplettTilgang(
-        accessToken: String,
-        fødselsnummer: String,
-    ) = TilgangskontrollResultat.Ok
-
-    override fun kontrollerKjerneTilgang(
-        accessToken: String,
-        fødselsnummer: String,
-    ) = TilgangskontrollResultat.Ok
-
-    override fun kontrollerKjerneTilgangForAnsatt(
-        ansattId: String,
-        fødselsnummer: String,
-    ) = TilgangskontrollResultat.Ok
 }
 
 internal fun launchApplication(
