@@ -210,6 +210,8 @@ internal data class Arbeidsgiverinntekt(
     val overstyrtEllerOmregnetÅrsinntekt = overstyrtInntekt?.årsinntekt ?: omregnetÅrsinntekt
     val fastsattÅrsinntekt = if (deaktivert) BigDecimal.ZERO else skjønnsfastsatt?.årsinntekt ?: overstyrtEllerOmregnetÅrsinntekt
 
+    fun tilBehovsarbeidsgiver() = Sykepengegrunnlagsbehov.Arbeidsgiver(orgnummer, inntektskilde, inntektsmeldingInternDokumentId)
+
     companion object {
         fun fraInntektsmelding(inntektsmelding: Inntektsmelding) =
             Arbeidsgiverinntekt(
@@ -271,6 +273,21 @@ internal data class Arbeidsgiverinntekt(
 internal enum class Inntektskilde {
     INNTEKTSMELDING,
     A_ORDNINGEN,
+}
+
+/** Det Spleis ber om i behovet `Sykepengegrunnlag`. */
+internal class Sykepengegrunnlagsbehov(
+    val fødselsnummer: Identitetsnummer,
+    val skjæringstidspunkt: LocalDate,
+    val rettighetskategoriId: RettighetskategoriId,
+    val arbeidsgivere: List<Arbeidsgiver>,
+    val søknadInternDokumentId: InternDokumentId?,
+) {
+    data class Arbeidsgiver(
+        val orgnummer: Organisasjonsnummer,
+        val inntektskilde: Inntektskilde,
+        val inntektsmeldingInternDokumentId: InternDokumentId?,
+    )
 }
 
 internal enum class Opphav {
@@ -400,6 +417,21 @@ internal class Sykepengegrunnlag private constructor(
     fun ukjenteArbeidsforhold(overstyringer: List<Arbeidsforholdoverstyring>): List<Organisasjonsnummer> {
         val kjente = arbeidsgivere.map { it.orgnummer }.toSet()
         return overstyringer.map { it.orgnummer }.filterNot { it in kjente }
+    }
+
+    /**
+     * Spleis sender behovet ved inngang til tilstanden og ved hver påminnelse. Et grunnlag fra vilkårsprøving med det samme innholdet som
+     * behovet gjenbrukes, slik at det ikke blir et nytt grunnlag hver gang. Rekkefølgen på arbeidsgiverne spiller ingen rolle. Et grunnlag
+     * fra en endring gjenbrukes aldri, fordi behovet betyr at Spleis vilkårsprøver på nytt uten endringene.
+     */
+    fun kanGjenbrukesFor(behov: Sykepengegrunnlagsbehov): Boolean {
+        if (opphav != Opphav.VILKÅRSPRØVING) return false
+        val egneArbeidsgivere = arbeidsgivere.map { it.tilBehovsarbeidsgiver() }
+        return behov.fødselsnummer == fødselsnummer &&
+            behov.skjæringstidspunkt == skjæringstidspunkt &&
+            behov.rettighetskategoriId == rettighetskategoriId &&
+            behov.søknadInternDokumentId == selvstendig?.søknad?.internDokumentId &&
+            behov.arbeidsgivere.groupingBy { it }.eachCount() == egneArbeidsgivere.groupingBy { it }.eachCount()
     }
 
     private fun endre(

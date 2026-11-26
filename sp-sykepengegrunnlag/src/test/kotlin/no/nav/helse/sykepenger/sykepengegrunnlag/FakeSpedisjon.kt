@@ -12,6 +12,8 @@ import java.util.UUID
 internal class FakeSpedisjon {
     private val meldinger = mutableMapOf<UUID, Map<String, Any>>()
     private var feiler = false
+    var antallOppslag = 0
+        private set
 
     val client =
         SpedisjonClient(
@@ -113,6 +115,7 @@ internal class FakeSpedisjon {
 
     private fun hentMeldinger(request: HttpRequest): HttpResponse<String> {
         check(request.method() == "GET" && request.uri().path == "/api/meldinger") { "Uventet kall til Spedisjon: ${request.method()} ${request.uri()}" }
+        antallOppslag++
         if (feiler) return MockHttpResponse("""{"detail":"Spedisjon er nede"}""", 503)
         val internDokumentIder =
             objectMapper

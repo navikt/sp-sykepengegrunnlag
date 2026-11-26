@@ -3,7 +3,9 @@ package no.nav.helse.sykepenger.sykepengegrunnlag
 import no.nav.sykepenger.libs.testing.testdata.lagIdentitetsnummer
 import no.nav.sykepenger.libs.testing.testdata.lagOrganisasjonsnummer
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.math.BigDecimal
@@ -270,6 +272,100 @@ internal class SykepengegrunnlagTest {
         assertEquals(listOf(A3), grunnlag.ukjenteArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A1), lagArbeidsforholdoverstyring(A3))))
         assertEquals(emptyList<Organisasjonsnummer>(), grunnlag.ukjenteArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A1))))
     }
+
+    @Test
+    fun `grunnlaget gjenbrukes når behovet er det samme`() {
+        val grunnlag = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+
+        assertTrue(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag)))
+    }
+
+    @Test
+    fun `rekkefølgen på arbeidsgiverne i behovet spiller ingen rolle`() {
+        val grunnlag = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+        val behov = lagBehov(grunnlag)
+
+        assertTrue(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, arbeidsgivere = behov.arbeidsgivere.reversed())))
+    }
+
+    @Test
+    fun `grunnlaget gjenbrukes ikke når ett felt i behovet er ulikt`() {
+        val grunnlag = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"), lagArbeidsgiverinntekt(A2, månedlig = "20000"))
+        val arbeidsgivere = lagBehov(grunnlag).arbeidsgivere
+        val (første, andre) = arbeidsgivere
+
+        assertFalse(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, fødselsnummer = Identitetsnummer.fraString(lagIdentitetsnummer()))))
+        assertFalse(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, skjæringstidspunkt = SKJÆRINGSTIDSPUNKT.plusDays(1))))
+        assertFalse(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, rettighetskategoriId = RettighetskategoriId(UUID.randomUUID()))))
+        assertFalse(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, arbeidsgivere = listOf(første.copy(orgnummer = A3), andre))))
+        assertFalse(
+            grunnlag.kanGjenbrukesFor(
+                lagBehov(grunnlag, arbeidsgivere = listOf(første.copy(inntektskilde = Inntektskilde.A_ORDNINGEN, inntektsmeldingInternDokumentId = null), andre)),
+            ),
+        )
+        assertFalse(
+            grunnlag.kanGjenbrukesFor(
+                lagBehov(grunnlag, arbeidsgivere = listOf(første.copy(inntektsmeldingInternDokumentId = InternDokumentId(UUID.randomUUID())), andre)),
+            ),
+        )
+        assertFalse(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, arbeidsgivere = listOf(første))))
+        assertFalse(
+            grunnlag.kanGjenbrukesFor(
+                lagBehov(grunnlag, arbeidsgivere = arbeidsgivere + Sykepengegrunnlagsbehov.Arbeidsgiver(A3, Inntektskilde.A_ORDNINGEN, null)),
+            ),
+        )
+    }
+
+    @Test
+    fun `grunnlaget for selvstendig næringsdrivende gjenbrukes bare når søknaden er den samme`() {
+        val grunnlag =
+            Sykepengegrunnlag.fastsettForSelvstendig(
+                fødselsnummer = FØDSELSNUMMER,
+                skjæringstidspunkt = SKJÆRINGSTIDSPUNKT,
+                rettighetskategoriId = RettighetskategoriId(UUID.randomUUID()),
+                søknad = lagSøknad(),
+                nå = Instant.now(),
+            )
+
+        assertTrue(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag)))
+        assertFalse(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, søknadInternDokumentId = InternDokumentId(UUID.randomUUID()))))
+        assertFalse(grunnlag.kanGjenbrukesFor(lagBehov(grunnlag, søknadInternDokumentId = null)))
+    }
+
+    @Test
+    fun `bare grunnlag fra vilkårsprøving gjenbrukes`() {
+        val vilkårsprøving = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "25000"))
+        val skjønnsfastsatt = vilkårsprøving.skjønnsfastsett(SKJØNNSFASTSETTELSE_ID, listOf(lagSkjønnsfastsettelse(A1, "350000")))
+
+        assertFalse(skjønnsfastsatt.kanGjenbrukesFor(lagBehov(skjønnsfastsatt)))
+    }
+
+    private fun lagSøknad() =
+        Søknad(
+            internDokumentId = InternDokumentId(UUID.randomUUID()),
+            søknadId = SøknadId(UUID.randomUUID()),
+            pensjonsgivendeInntekter =
+                listOf(
+                    PensjonsgivendeInntekt(
+                        år = 2025,
+                        erFerdigLignet = true,
+                        lønnsinntekt = 0,
+                        lønnsinntektBarePensjonsdel = 0,
+                        næringsinntekt = 500000,
+                        næringsinntektFraFiskeFangstEllerFamiliebarnehage = 0,
+                    ),
+                ),
+            hentet = Instant.now(),
+        )
+
+    private fun lagBehov(
+        grunnlag: Sykepengegrunnlag,
+        fødselsnummer: Identitetsnummer = grunnlag.fødselsnummer,
+        skjæringstidspunkt: LocalDate = grunnlag.skjæringstidspunkt,
+        rettighetskategoriId: RettighetskategoriId = grunnlag.rettighetskategoriId,
+        arbeidsgivere: List<Sykepengegrunnlagsbehov.Arbeidsgiver> = grunnlag.arbeidsgivere.map { it.tilBehovsarbeidsgiver() },
+        søknadInternDokumentId: InternDokumentId? = grunnlag.selvstendig?.søknad?.internDokumentId,
+    ) = Sykepengegrunnlagsbehov(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, arbeidsgivere, søknadInternDokumentId)
 
     private fun lagGrunnlag(vararg arbeidsgivere: Arbeidsgiverinntekt) =
         Sykepengegrunnlag.fastsett(

@@ -12,6 +12,8 @@ import java.util.UUID
 internal class FakeRettighetskategori {
     private val rettighetskategorier = mutableMapOf<UUID, Pair<String, String>>()
     private var feiler = false
+    var antallOppslag = 0
+        private set
 
     val client =
         RettighetskategoriClient(
@@ -33,6 +35,7 @@ internal class FakeRettighetskategori {
     private fun hent(request: HttpRequest): HttpResponse<String> {
         val id = UUID.fromString(request.uri().path.removePrefix("/api/rettighetskategorier/"))
         check(request.method() == "POST") { "Uventet kall til sp-rettighetskategori: ${request.method()} ${request.uri()}" }
+        antallOppslag++
         if (feiler) return MockHttpResponse("""{"detail":"sp-rettighetskategori er nede"}""", 503)
         val fødselsnummer = objectMapper.readTree(request.bodyAsString()).path("fødselsnummer").asString()
         val hovedkategori =

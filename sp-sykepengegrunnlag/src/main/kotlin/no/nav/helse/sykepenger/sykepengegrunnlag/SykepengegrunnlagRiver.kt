@@ -72,11 +72,26 @@ internal class SykepengegrunnlagRiver(
                 return@medMdc
             }
             try {
+                val inntektsopplysninger = arbeidsgivere.map { it.tilInntektsopplysning() }
+                val behov =
+                    Sykepengegrunnlagsbehov(
+                        fødselsnummer = fødselsnummer,
+                        skjæringstidspunkt = skjæringstidspunkt,
+                        rettighetskategoriId = rettighetskategoriId,
+                        arbeidsgivere = inntektsopplysninger.map { it.tilBehovsarbeidsgiver() },
+                        søknadInternDokumentId = søknadInternDokumentId,
+                    )
                 val grunnlag =
-                    if (søknadInternDokumentId != null) {
-                        fastsettForSelvstendig(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, søknadInternDokumentId)
-                    } else {
-                        fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, arbeidsgivere.map { it.tilInntektsopplysning() })
+                    sessionOf(dataSource).use { session ->
+                        session.transaction { tx ->
+                            val repository = PgSykepengegrunnlagRepository(tx)
+                            finnGrunnlagSomKanGjenbrukes(repository, behov)
+                                ?: if (søknadInternDokumentId != null) {
+                                    fastsettForSelvstendig(repository, fødselsnummer, skjæringstidspunkt, rettighetskategoriId, søknadInternDokumentId)
+                                } else {
+                                    fastsett(repository, fødselsnummer, skjæringstidspunkt, rettighetskategoriId, inntektsopplysninger)
+                                }
+                        }
                     }
                 packet["@løsning"] = mapOf(BEHOV to mapOf("id" to grunnlag.id.uuid.toString()))
                 loggInfo(
@@ -127,7 +142,24 @@ internal class SykepengegrunnlagRiver(
         }
     }
 
+    private fun Inntektsopplysning.tilBehovsarbeidsgiver(): Sykepengegrunnlagsbehov.Arbeidsgiver =
+        when (this) {
+            is Inntektsopplysning.FraInntektsmelding -> Sykepengegrunnlagsbehov.Arbeidsgiver(orgnummer, Inntektskilde.INNTEKTSMELDING, internDokumentId)
+            is Inntektsopplysning.FraAOrdningen -> Sykepengegrunnlagsbehov.Arbeidsgiver(orgnummer, Inntektskilde.A_ORDNINGEN, null)
+        }
+
+    /** Bare det nyeste grunnlaget gjenbrukes, slik at det nyeste alltid er det Spleis bruker når neste endring kommer. */
+    private fun finnGrunnlagSomKanGjenbrukes(
+        repository: SykepengegrunnlagRepository,
+        behov: Sykepengegrunnlagsbehov,
+    ): Sykepengegrunnlag? =
+        repository
+            .finnNyesteOrNull(behov.fødselsnummer, behov.skjæringstidspunkt)
+            ?.takeIf { it.kanGjenbrukesFor(behov) }
+            ?.also { loggInfo("Gjenbruker sykepengegrunnlaget", "sykepengegrunnlagId" to it.id.uuid.toString()) }
+
     private fun fastsett(
+        repository: SykepengegrunnlagRepository,
         fødselsnummer: Identitetsnummer,
         skjæringstidspunkt: LocalDate,
         rettighetskategoriId: RettighetskategoriId,
@@ -154,10 +186,11 @@ internal class SykepengegrunnlagRiver(
             }
         return Sykepengegrunnlag
             .fastsett(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, arbeidsgivere, nå = Instant.now())
-            .also { lagre(it, inntektsmeldinger, aOrdningen) }
+            .also { repository.lagre(it, inntektsmeldinger, aOrdningen) }
     }
 
     private fun fastsettForSelvstendig(
+        repository: SykepengegrunnlagRepository,
         fødselsnummer: Identitetsnummer,
         skjæringstidspunkt: LocalDate,
         rettighetskategoriId: RettighetskategoriId,
@@ -168,17 +201,7 @@ internal class SykepengegrunnlagRiver(
         val søknad = søknader.hent(søknadInternDokumentId)
         return Sykepengegrunnlag
             .fastsettForSelvstendig(fødselsnummer, skjæringstidspunkt, rettighetskategoriId, søknad, nå = Instant.now())
-            .also { lagre(it, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
-    }
-
-    private fun lagre(
-        grunnlag: Sykepengegrunnlag,
-        inntektsmeldinger: List<Inntektsmelding>,
-        aOrdningsoppslag: AOrdningsoppslag?,
-    ) {
-        sessionOf(dataSource).use { session ->
-            session.transaction { tx -> PgSykepengegrunnlagRepository(tx).lagre(grunnlag, inntektsmeldinger, aOrdningsoppslag) }
-        }
+            .also { repository.lagre(it, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
     }
 
     private companion object {

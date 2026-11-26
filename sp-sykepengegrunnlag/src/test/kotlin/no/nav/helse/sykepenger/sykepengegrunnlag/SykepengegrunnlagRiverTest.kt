@@ -7,11 +7,13 @@ import no.nav.sykepenger.libs.testing.testdata.lagOrganisasjonsnummer
 import org.intellij.lang.annotations.Language
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.EnumSource
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.node.ObjectNode
 import tools.jackson.module.kotlin.jacksonObjectMapper
@@ -525,6 +527,100 @@ internal class SykepengegrunnlagRiverTest {
     }
 
     @Test
+    fun `svarer med det samme grunnlaget når det samme behovet kommer på nytt`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im1 = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1)
+        val im2 = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A2)
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im1), lagArbeidsgiver(A2, im2), lagAOrdningen(A3))), FØDSELSNUMMER)
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A3), lagArbeidsgiver(A2, im2), lagArbeidsgiver(A1, im1))), FØDSELSNUMMER)
+
+        assertEquals(2, rapid.inspektør.size)
+        val id = rapid.inspektør.message(0).løsning().path("id").asString()
+        assertEquals(id, rapid.inspektør.message(1).løsning().path("id").asString())
+        assertEquals(listOf(UUID.fromString(id)), TestDatabase.grunnlag().map { it.id })
+        assertEquals(1, spedisjon.antallOppslag)
+        assertEquals(1, rettighetskategori.antallOppslag)
+        assertEquals(1, inntektskomponenten.kall.size)
+    }
+
+    @Test
+    fun `svarer med det samme grunnlaget når det samme behovet fra selvstendig næringsdrivende kommer på nytt`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER, hovedkategori = "SELVSTENDIG_NAERINGSDRIVENDE")
+        val søknad = spedisjon.lagSelvstendigSøknad(FØDSELSNUMMER, listOf(FakeSpedisjon.InntektsÅr(2025, næringsinntekt = 500000)))
+
+        repeat(2) {
+            rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, emptyList(), søknadMeldingsreferanseId = søknad), FØDSELSNUMMER)
+        }
+
+        val id = rapid.inspektør.message(0).løsning().path("id").asString()
+        assertEquals(id, rapid.inspektør.message(1).løsning().path("id").asString())
+        assertEquals(listOf(UUID.fromString(id)), TestDatabase.grunnlag().map { it.id })
+        assertEquals(1, spedisjon.antallOppslag)
+        assertEquals(1, rettighetskategori.antallOppslag)
+    }
+
+    @ParameterizedTest
+    @EnumSource(EndringIBehovet::class)
+    fun `fastsetter et nytt grunnlag når ett felt i behovet er ulikt`(endring: EndringIBehovet) {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im1 = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1)
+        val arbeidsgivere = listOf(lagArbeidsgiver(A1, im1), lagAOrdningen(A2))
+
+        rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, arbeidsgivere), FØDSELSNUMMER)
+        val endretBehov =
+            when (endring) {
+                EndringIBehovet.SKJÆRINGSTIDSPUNKT -> lagSykepengegrunnlagBehov(rettighetskategoriId, arbeidsgivere, skjæringstidspunkt = SKJÆRINGSTIDSPUNKT.plusDays(1))
+                EndringIBehovet.RETTIGHETSKATEGORI ->
+                    lagSykepengegrunnlagBehov(rettighetskategori.lagRettighetskategori(FØDSELSNUMMER), arbeidsgivere)
+                EndringIBehovet.ORGNUMMER -> lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im1), lagAOrdningen(A3)))
+                EndringIBehovet.INNTEKTSKILDE ->
+                    lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im1), lagArbeidsgiver(A2, spedisjon.lagInntektsmelding(FØDSELSNUMMER, A2))))
+                EndringIBehovet.INNTEKTSMELDING ->
+                    lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1)), lagAOrdningen(A2)))
+                EndringIBehovet.EN_ARBEIDSGIVER_MER -> lagSykepengegrunnlagBehov(rettighetskategoriId, arbeidsgivere + lagAOrdningen(A3))
+                EndringIBehovet.EN_ARBEIDSGIVER_MINDRE -> lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im1)))
+            }
+        rapid.sendTestMessage(endretBehov, FØDSELSNUMMER)
+
+        assertEquals(2, rapid.inspektør.size)
+        val første = UUID.fromString(rapid.inspektør.message(0).løsning().path("id").asString())
+        val andre = UUID.fromString(rapid.inspektør.message(1).løsning().path("id").asString())
+        assertNotEquals(første, andre)
+        assertEquals(setOf(første, andre), TestDatabase.grunnlag().map { it.id }.toSet())
+        assertEquals(2, rettighetskategori.antallOppslag)
+    }
+
+    @Test
+    fun `fastsetter et nytt grunnlag når Spleis vilkårsprøver på nytt etter en skjønnsfastsettelse`() {
+        val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER)
+        val im = spedisjon.lagInntektsmelding(FØDSELSNUMMER, A1)
+        val behov = lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagArbeidsgiver(A1, im)))
+
+        rapid.sendTestMessage(behov, FØDSELSNUMMER)
+        rapid.sendTestMessage(lagSkjønnsmessigFastsettelse(A1, årlig = 400000.0), FØDSELSNUMMER)
+        rapid.sendTestMessage(behov, FØDSELSNUMMER)
+
+        assertEquals(3, rapid.inspektør.size)
+        val vilkårsprøving = UUID.fromString(rapid.inspektør.message(0).løsning().path("id").asString())
+        val skjønnsfastsatt = UUID.fromString(rapid.inspektør.message(1).path("sykepengegrunnlagId").asString())
+        val nytt = UUID.fromString(rapid.inspektør.message(2).løsning().path("id").asString())
+        assertEquals(3, setOf(vilkårsprøving, skjønnsfastsatt, nytt).size)
+        assertEquals(setOf(vilkårsprøving, skjønnsfastsatt, nytt), TestDatabase.grunnlag().map { it.id }.toSet())
+        assertEquals("VILKÅRSPRØVING", TestDatabase.grunnlag().single { it.id == nytt }.opphav)
+    }
+
+    enum class EndringIBehovet {
+        SKJÆRINGSTIDSPUNKT,
+        RETTIGHETSKATEGORI,
+        ORGNUMMER,
+        INNTEKTSKILDE,
+        INNTEKTSMELDING,
+        EN_ARBEIDSGIVER_MER,
+        EN_ARBEIDSGIVER_MINDRE,
+    }
+
+    @Test
     fun `fastsetter grunnlaget for selvstendig næringsdrivende fra den pensjonsgivende inntekten i søknaden`() {
         val rettighetskategoriId = rettighetskategori.lagRettighetskategori(FØDSELSNUMMER, hovedkategori = "SELVSTENDIG_NAERINGSDRIVENDE")
         val søknadId = UUID.randomUUID()
@@ -689,6 +785,26 @@ internal class SykepengegrunnlagRiverTest {
     ) = """{"orgnummer": "$orgnummer", "inntektskilde": "$inntektskilde"${inntektsmeldingMeldingsreferanseId?.let { ", \"inntektsmeldingMeldingsreferanseId\": \"$it\"" } ?: ""}}"""
 
     private fun lagAOrdningen(orgnummer: String) = lagArbeidsgiver(orgnummer, inntektsmeldingMeldingsreferanseId = null, inntektskilde = "A_ORDNINGEN")
+
+    @Language("JSON")
+    private fun lagSkjønnsmessigFastsettelse(
+        orgnummer: String,
+        årlig: Double,
+    ) = """
+        {
+          "@event_name": "skjønnsmessig_fastsettelse",
+          "@id": "${UUID.randomUUID()}",
+          "@opprettet": "${LocalDateTime.now()}",
+          "fødselsnummer": "$FØDSELSNUMMER",
+          "aktørId": "1234567891011",
+          "skjæringstidspunkt": "$SKJÆRINGSTIDSPUNKT",
+          "arbeidsgivere": [{"organisasjonsnummer": "$orgnummer", "årlig": $årlig, "fraÅrlig": 360000.0}],
+          "saksbehandlerOid": "${UUID.randomUUID()}",
+          "saksbehandlerNavn": "Saks Behandler",
+          "saksbehandlerIdent": "X999999",
+          "saksbehandlerEpost": "saks.behandler@nav.no"
+        }
+        """
 
     private companion object {
         val A1 = lagOrganisasjonsnummer()
