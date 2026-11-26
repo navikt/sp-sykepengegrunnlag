@@ -78,7 +78,7 @@ internal data class Sykepengegrunnlagsfakta(
             Sykepengegrunnlagsfakta(
                 sykepengegrunnlag = beløp(grunnlag.sykepengegrunnlag),
                 seksG = beløp(grunnlag.seksG),
-                fastsatt = if (grunnlag.arbeidsgivere.any { it.skjønnsfastsatt != null }) "EtterSkjønn" else "EtterHovedregel",
+                fastsatt = if (grunnlag.erSkjønnsfastsatt) "EtterSkjønn" else "EtterHovedregel",
                 arbeidsgivere =
                     grunnlag.aktiveArbeidsgivere.map {
                         Arbeidsgiver(

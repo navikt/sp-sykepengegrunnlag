@@ -536,8 +536,20 @@ internal class SykepengegrunnlagRiverTest {
         rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, listOf(lagAOrdningen(A3), lagArbeidsgiver(A2, im2), lagArbeidsgiver(A1, im1))), FØDSELSNUMMER)
 
         assertEquals(2, rapid.inspektør.size)
-        val id = rapid.inspektør.message(0).løsning().path("id").asString()
-        assertEquals(id, rapid.inspektør.message(1).løsning().path("id").asString())
+        val id =
+            rapid.inspektør
+                .message(0)
+                .løsning()
+                .path("id")
+                .asString()
+        assertEquals(
+            id,
+            rapid.inspektør
+                .message(1)
+                .løsning()
+                .path("id")
+                .asString(),
+        )
         assertEquals(listOf(UUID.fromString(id)), TestDatabase.grunnlag().map { it.id })
         assertEquals(1, spedisjon.antallOppslag)
         assertEquals(1, rettighetskategori.antallOppslag)
@@ -553,8 +565,20 @@ internal class SykepengegrunnlagRiverTest {
             rapid.sendTestMessage(lagSykepengegrunnlagBehov(rettighetskategoriId, emptyList(), søknadMeldingsreferanseId = søknad), FØDSELSNUMMER)
         }
 
-        val id = rapid.inspektør.message(0).løsning().path("id").asString()
-        assertEquals(id, rapid.inspektør.message(1).løsning().path("id").asString())
+        val id =
+            rapid.inspektør
+                .message(0)
+                .løsning()
+                .path("id")
+                .asString()
+        assertEquals(
+            id,
+            rapid.inspektør
+                .message(1)
+                .løsning()
+                .path("id")
+                .asString(),
+        )
         assertEquals(listOf(UUID.fromString(id)), TestDatabase.grunnlag().map { it.id })
         assertEquals(1, spedisjon.antallOppslag)
         assertEquals(1, rettighetskategori.antallOppslag)
@@ -584,8 +608,22 @@ internal class SykepengegrunnlagRiverTest {
         rapid.sendTestMessage(endretBehov, FØDSELSNUMMER)
 
         assertEquals(2, rapid.inspektør.size)
-        val første = UUID.fromString(rapid.inspektør.message(0).løsning().path("id").asString())
-        val andre = UUID.fromString(rapid.inspektør.message(1).løsning().path("id").asString())
+        val første =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(0)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
+        val andre =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(1)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
         assertNotEquals(første, andre)
         assertEquals(setOf(første, andre), TestDatabase.grunnlag().map { it.id }.toSet())
         assertEquals(2, rettighetskategori.antallOppslag)
@@ -602,9 +640,29 @@ internal class SykepengegrunnlagRiverTest {
         rapid.sendTestMessage(behov, FØDSELSNUMMER)
 
         assertEquals(3, rapid.inspektør.size)
-        val vilkårsprøving = UUID.fromString(rapid.inspektør.message(0).løsning().path("id").asString())
-        val skjønnsfastsatt = UUID.fromString(rapid.inspektør.message(1).path("sykepengegrunnlagId").asString())
-        val nytt = UUID.fromString(rapid.inspektør.message(2).løsning().path("id").asString())
+        val vilkårsprøving =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(0)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
+        val skjønnsfastsatt =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(1)
+                    .path("sykepengegrunnlagId")
+                    .asString(),
+            )
+        val nytt =
+            UUID.fromString(
+                rapid.inspektør
+                    .message(2)
+                    .løsning()
+                    .path("id")
+                    .asString(),
+            )
         assertEquals(3, setOf(vilkårsprøving, skjønnsfastsatt, nytt).size)
         assertEquals(setOf(vilkårsprøving, skjønnsfastsatt, nytt), TestDatabase.grunnlag().map { it.id }.toSet())
         assertEquals("VILKÅRSPRØVING", TestDatabase.grunnlag().single { it.id == nytt }.opphav)

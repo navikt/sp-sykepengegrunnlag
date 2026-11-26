@@ -27,6 +27,17 @@ internal class PgSykepengegrunnlagRepository(
         lagreGrunnlag(grunnlag)
     }
 
+    override fun finnOrNull(id: Sykepengegrunnlag.Id): Sykepengegrunnlag? {
+        @Language("PostgreSQL")
+        val sql =
+            """
+            SELECT id, fødselsnummer, skjæringstidspunkt, rettighetskategori_id, opphav, data
+            FROM sykepengegrunnlag
+            WHERE id = :id
+            """
+        return tx.run(queryOf(sql, mapOf("id" to id.uuid)).map { it.tilSykepengegrunnlag() }.asSingle)
+    }
+
     override fun finnNyesteOrNull(
         fødselsnummer: Identitetsnummer,
         skjæringstidspunkt: LocalDate,

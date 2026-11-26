@@ -297,6 +297,9 @@ internal enum class Opphav {
     SKJØNNSFASTSETTELSE,
     BACKFILL_SPLEIS,
     BACKFILL_INFOTRYGD,
+    ;
+
+    val iMeldinger get() = name.lowercase()
 }
 
 /**
@@ -329,6 +332,8 @@ internal class Sykepengegrunnlag private constructor(
 
     /** Arbeidsgiverne som teller med i grunnlaget, som `arbeidsgiverInntektsopplysninger` i Spleis. */
     val aktiveArbeidsgivere get() = arbeidsgivere.filterNot { it.deaktivert }
+
+    val erSkjønnsfastsatt get() = arbeidsgivere.any { it.skjønnsfastsatt != null }
 
     /**
      * Kopiert fra `Inntektsgrunnlag.skjønnsmessigFastsettelse` i Spleis: alle de aktive arbeidsgiverne i grunnlaget må skjønnsfastsettes,

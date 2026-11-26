@@ -104,6 +104,11 @@ internal object Grunnbeløp {
             ?: throw NoSuchElementException("Finner ingen grunnbeløp etter $dato")
     }
 
+    /** Kopiert fra `Grunnbeløp.virkningstidspunktFor` i Spleis: datoen grunnbeløpet med dette beløpet gjelder fra. */
+    fun virkningstidspunktFor(beløp: BigDecimal): LocalDate =
+        grunnbeløp.find { it.beløp.compareTo(beløp) == 0 }?.virkningsdato
+            ?: throw IllegalArgumentException("$beløp er ikke et grunnbeløp")
+
     /** Gjennomsnittlig grunnbeløp i året, vektet med antall måneder hvert grunnbeløp gjaldt. Regnes med `Double` som i Spleis. */
     fun snitt(år: Int): Int =
         grunnbeløp

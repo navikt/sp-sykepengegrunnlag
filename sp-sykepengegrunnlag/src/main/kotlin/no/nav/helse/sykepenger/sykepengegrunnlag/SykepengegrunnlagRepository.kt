@@ -9,6 +9,9 @@ internal interface SykepengegrunnlagRepository {
         aOrdningsoppslag: AOrdningsoppslag?,
     )
 
+    /** Finner grunnlaget med ID-en, også fra backfill. */
+    fun finnOrNull(id: Sykepengegrunnlag.Id): Sykepengegrunnlag?
+
     /** Endringer bygger på det nyeste grunnlaget, også når det kommer fra backfill. */
     fun finnNyesteOrNull(
         fødselsnummer: Identitetsnummer,

@@ -164,6 +164,25 @@ internal class PgSykepengegrunnlagRepositoryTest {
         assertEquals(emptyList<Sykepengegrunnlag>(), alle)
     }
 
+    @Test
+    fun `finner grunnlaget med ID-en, også fra backfill`() {
+        val grunnlag = lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+        val backfill = grunnlag.somBackfill()
+        sessionOf(TestDatabase.dataSource).use { session ->
+            session.transaction { PgSykepengegrunnlagRepository(it).lagre(backfill, inntektsmeldinger = emptyList(), aOrdningsoppslag = null) }
+        }
+        lagre(FØDSELSNUMMER, SKJÆRINGSTIDSPUNKT)
+
+        assertEquals(grunnlag.id, finnOrNull(grunnlag.id)?.id)
+        assertEquals(Opphav.BACKFILL_SPLEIS, finnOrNull(backfill.id)?.opphav)
+        assertNull(finnOrNull(Sykepengegrunnlag.Id(UUID.randomUUID())))
+    }
+
+    private fun finnOrNull(id: Sykepengegrunnlag.Id) =
+        sessionOf(TestDatabase.dataSource).use { session ->
+            session.transaction { PgSykepengegrunnlagRepository(it).finnOrNull(id) }
+        }
+
     private fun Sykepengegrunnlag.somBackfill() =
         Sykepengegrunnlag.fraLagring(
             id = Sykepengegrunnlag.Id(UUID.randomUUID()),

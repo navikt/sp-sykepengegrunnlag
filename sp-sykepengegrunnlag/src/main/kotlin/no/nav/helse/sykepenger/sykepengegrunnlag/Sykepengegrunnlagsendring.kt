@@ -78,7 +78,5 @@ internal class Sykepengegrunnlagsendring(
 
     private companion object {
         const val METRIKK_UTEN_GRUNNLAG = "sykepengegrunnlag_endring_uten_grunnlag"
-
-        val Opphav.iMeldinger get() = name.lowercase()
     }
 }
