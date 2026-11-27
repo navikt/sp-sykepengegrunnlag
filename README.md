@@ -6,7 +6,7 @@ Appen henter inntektsmeldingene og søknadene fra Spedisjon, inntektene fra a-or
 
 Mens appen er i skyggedrift, sammenligner den det nyeste grunnlaget for skjæringstidspunktet med `sykepengegrunnlagsfakta` i godkjenningsbehovet fra Spleis. Grunnlag fra backfill er ikke med. Utfallet `lik`, `forskjell` eller `mangler` logges og telles i metrikken `sykepengegrunnlag_sammenligning_i_skyggedrift`. Appen svarer ikke på godkjenningsbehovet.
 
-Appen tar også imot skjønnsfastsettelser og overstyringer av inntekt fra Spesialist. Da lager den et nytt grunnlag og sier fra til Spleis om at grunnlaget er endret.
+Appen tar også imot skjønnsfastsettelser og overstyringer av inntekt fra Spesialist, og grunnbeløpsreguleringer fra spregulering. Da lager den et nytt grunnlag og sier fra til Spleis om at grunnlaget er endret.
 
 Speil kan hente alle grunnlagene for et skjæringstidspunkt gjennom et REST-API, og viser dem i utviklerfanen. Kallet krever saksbehandlerens Azure AD-token med lesetilgang, og appen kontrollerer tilgangen til personen i tilgangsmaskinen. OpenAPI-specen ligger på `/api/openapi.json`, og Swagger UI på `/api/swagger`.
 

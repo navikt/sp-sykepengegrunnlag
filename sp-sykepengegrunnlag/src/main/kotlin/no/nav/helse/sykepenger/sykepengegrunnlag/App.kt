@@ -109,4 +109,5 @@ internal fun RapidsConnection.registrerRivers(
     SkjønnsmessigFastsettelseRiver(this, Sykepengegrunnlagsendring(dataSource))
     OverstyrInntektOgRefusjonRiver(this, Sykepengegrunnlagsendring(dataSource))
     OverstyrArbeidsforholdRiver(this, Sykepengegrunnlagsendring(dataSource))
+    GrunnbeløpsreguleringRiver(this, Sykepengegrunnlagsendring(dataSource))
 }

@@ -302,7 +302,7 @@
           },
           "opphav" : {
             "type" : "string",
-            "enum" : [ "VILKARSPROVING", "OVERSTYRING_INNTEKT", "OVERSTYRING_ARBEIDSFORHOLD", "SKJONNSFASTSETTELSE", "BACKFILL_SPLEIS", "BACKFILL_INFOTRYGD" ]
+            "enum" : [ "VILKARSPROVING", "OVERSTYRING_INNTEKT", "OVERSTYRING_ARBEIDSFORHOLD", "SKJONNSFASTSETTELSE", "GRUNNBELOPSREGULERING", "BACKFILL_SPLEIS", "BACKFILL_INFOTRYGD" ]
           },
           "rettighetskategoriId" : {
             "type" : "string",

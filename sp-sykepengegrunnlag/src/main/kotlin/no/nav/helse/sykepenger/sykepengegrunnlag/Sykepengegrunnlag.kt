@@ -295,6 +295,7 @@ internal enum class Opphav {
     OVERSTYRING_INNTEKT,
     OVERSTYRING_ARBEIDSFORHOLD,
     SKJØNNSFASTSETTELSE,
+    GRUNNBELØPSREGULERING,
     BACKFILL_SPLEIS,
     BACKFILL_INFOTRYGD,
     ;
@@ -418,6 +419,25 @@ internal class Sykepengegrunnlag private constructor(
         )
     }
 
+    /**
+     * Kopiert fra `Inntektsgrunnlag.grunnbeløpsregulering` i Spleis: grunnlaget fastsettes med grunnbeløpet som gjelder for
+     * skjæringstidspunktet nå, og § 8-35 for selvstendig næringsdrivende regnes på nytt med det. Er 6G den samme som før, blir det
+     * ikke noe nytt grunnlag.
+     */
+    fun grunnbeløpsreguler(nå: Instant): Sykepengegrunnlag? {
+        val nyttGrunnbeløp = gjeldendeGrunnbeløp(skjæringstidspunkt, nå)
+        val nySeksG = nyttGrunnbeløp * SEKS_G
+        if (nySeksG.compareTo(seksG) == 0) return null
+        return endre(
+            opphav = Opphav.GRUNNBELØPSREGULERING,
+            manuellVurdering = false,
+            arbeidsgivere = arbeidsgivere,
+            selvstendig = selvstendig?.let { Selvstendiginntekt.fastsett(it.søknad, anvendtGrunnbeløp = nyttGrunnbeløp) },
+            grunnbeløp = nyttGrunnbeløp,
+            seksG = nySeksG,
+        )
+    }
+
     /** Arbeidsforholdene i overstyringene som ikke er i grunnlaget. */
     fun ukjenteArbeidsforhold(overstyringer: List<Arbeidsforholdoverstyring>): List<Organisasjonsnummer> {
         val kjente = arbeidsgivere.map { it.orgnummer }.toSet()
@@ -443,6 +463,9 @@ internal class Sykepengegrunnlag private constructor(
         opphav: Opphav,
         manuellVurdering: Boolean,
         arbeidsgivere: List<Arbeidsgiverinntekt>,
+        selvstendig: Selvstendiginntekt? = this.selvstendig,
+        grunnbeløp: BigDecimal = this.grunnbeløp,
+        seksG: BigDecimal = this.seksG,
     ): Sykepengegrunnlag =
         nytt(
             fødselsnummer = fødselsnummer,
@@ -552,7 +575,7 @@ internal class Sykepengegrunnlag private constructor(
                 arbeidsgivere = arbeidsgivere,
                 selvstendig = selvstendig,
                 grunnbeløp = grunnbeløp,
-                seksG = grunnbeløp * BigDecimal(6),
+                seksG = grunnbeløp * SEKS_G,
                 lovreferanser =
                     listOfNotNull(
                         Lovreferanse.`§ 8-28 tredje avsnitt, bokstav a`().takeIf { arbeidsgivere.any { it.inntektskilde == Inntektskilde.A_ORDNINGEN } },
@@ -589,6 +612,9 @@ internal class Sykepengegrunnlag private constructor(
                 lovreferanser = lovreferanser,
             )
         }
+
+        /** Sykepengegrunnlaget begrenses til seks ganger grunnbeløpet, § 8-10 andre ledd første punktum. */
+        private val SEKS_G = BigDecimal(6)
 
         private fun gjeldendeGrunnbeløp(
             skjæringstidspunkt: LocalDate,

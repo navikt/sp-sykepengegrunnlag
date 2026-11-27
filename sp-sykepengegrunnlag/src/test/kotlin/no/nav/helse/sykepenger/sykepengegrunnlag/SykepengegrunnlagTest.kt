@@ -340,14 +340,110 @@ internal class SykepengegrunnlagTest {
         assertFalse(skjønnsfastsatt.kanGjenbrukesFor(lagBehov(skjønnsfastsatt)))
     }
 
-    private fun lagSøknad() =
+    @Test
+    fun `grunnbeløpsregulering gir et nytt grunnlag med riktig grunnbeløp og 6G`() {
+        val forrige = lagGrunnlagMedGammeltGrunnbeløp(lagArbeidsgiverinntekt(A1, månedlig = "50000"))
+        assertEquals(BigDecimal("99858"), forrige.grunnbeløp)
+        assertEquals(true, forrige.er6GBegrenset)
+
+        val nytt = checkNotNull(forrige.grunnbeløpsreguler(nå = NÅ))
+
+        assertNotEquals(forrige.id, nytt.id)
+        assertEquals(Opphav.GRUNNBELØPSREGULERING, nytt.opphav)
+        assertEquals(BigDecimal("101351"), nytt.grunnbeløp)
+        assertEquals(BigDecimal("608106"), nytt.seksG)
+        assertEquals(BigDecimal("600000"), nytt.beregningsgrunnlag)
+        assertEquals(BigDecimal("600000"), nytt.sykepengegrunnlag)
+        assertEquals(false, nytt.er6GBegrenset)
+    }
+
+    @Test
+    fun `grunnbeløpsregulering gir ikke noe nytt grunnlag når grunnbeløpet allerede er riktig`() {
+        val grunnlag = lagGrunnlag(lagArbeidsgiverinntekt(A1, månedlig = "50000"))
+
+        assertEquals(null, grunnlag.grunnbeløpsreguler(nå = NÅ))
+    }
+
+    @Test
+    fun `grunnbeløpsregulering beholder overstyringer, skjønnsfastsettelse og deaktiverte arbeidsforhold`() {
+        val forrige =
+            checkNotNull(
+                lagGrunnlagMedGammeltGrunnbeløp(
+                    lagArbeidsgiverinntekt(A1, månedlig = "40000"),
+                    lagArbeidsgiverinntekt(A2, månedlig = "20000"),
+                    lagArbeidsgiverinntekt(A3, månedlig = "10000"),
+                ).overstyrInntekt(OVERSTYRING_ID, listOf(lagInntektsoverstyring(A1, "500000"))),
+            ).let { checkNotNull(it.overstyrArbeidsforhold(listOf(lagArbeidsforholdoverstyring(A3)))) }
+                .skjønnsfastsett(SKJØNNSFASTSETTELSE_ID, listOf(lagSkjønnsfastsettelse(A1, "450000"), lagSkjønnsfastsettelse(A2, "200000")))
+
+        val nytt = checkNotNull(forrige.grunnbeløpsreguler(nå = NÅ))
+
+        assertEquals(forrige.arbeidsgivere, nytt.arbeidsgivere)
+        assertEquals(BigDecimal("650000"), nytt.beregningsgrunnlag)
+        assertEquals(BigDecimal("608106"), nytt.sykepengegrunnlag)
+        assertEquals(true, nytt.er6GBegrenset)
+    }
+
+    @Test
+    fun `grunnbeløpsregulering er ikke en manuell vurdering`() {
+        val forrige = lagGrunnlagMedGammeltGrunnbeløp(lagArbeidsgiverinntekt(A1, månedlig = "50000"))
+
+        val nytt = checkNotNull(forrige.grunnbeløpsreguler(nå = NÅ))
+
+        assertEquals(
+            listOf(
+                EndretSykepengegrunnlag(
+                    fødselsnummer = FØDSELSNUMMER,
+                    skjæringstidspunkt = SKJÆRINGSTIDSPUNKT_2020,
+                    sykepengegrunnlagId = nytt.id,
+                    forrigeSykepengegrunnlagId = forrige.id,
+                    opphav = Opphav.GRUNNBELØPSREGULERING,
+                    manuellVurdering = false,
+                ),
+            ),
+            nytt.hendelser,
+        )
+    }
+
+    @Test
+    fun `grunnbeløpsregulering fastsetter grunnlaget for selvstendig næringsdrivende på nytt med riktig grunnbeløp`() {
+        val forrige =
+            Sykepengegrunnlag.fastsettForSelvstendig(
+                fødselsnummer = FØDSELSNUMMER,
+                skjæringstidspunkt = SKJÆRINGSTIDSPUNKT_2020,
+                rettighetskategoriId = RettighetskategoriId(UUID.randomUUID()),
+                søknad = lagSøknad(år = 2019),
+                nå = FØR_GRUNNBELØPET_2020_FIKK_VIRKNING,
+            )
+        assertEquals(BigDecimal("168338"), forrige.beregningsgrunnlag)
+
+        val nytt = checkNotNull(forrige.grunnbeløpsreguler(nå = NÅ))
+
+        val selvstendig = checkNotNull(nytt.selvstendig)
+        assertEquals(BigDecimal("101351"), selvstendig.anvendtGrunnbeløp)
+        assertEquals(BigDecimal("170855"), selvstendig.fastsattÅrsinntekt)
+        assertEquals(BigDecimal("170855"), nytt.beregningsgrunnlag)
+        assertEquals(BigDecimal("170855"), nytt.sykepengegrunnlag)
+        assertEquals(BigDecimal("608106"), nytt.seksG)
+    }
+
+    private fun lagGrunnlagMedGammeltGrunnbeløp(vararg arbeidsgivere: Arbeidsgiverinntekt) =
+        Sykepengegrunnlag.fastsett(
+            fødselsnummer = FØDSELSNUMMER,
+            skjæringstidspunkt = SKJÆRINGSTIDSPUNKT_2020,
+            rettighetskategoriId = RettighetskategoriId(UUID.randomUUID()),
+            arbeidsgivere = arbeidsgivere.toList(),
+            nå = FØR_GRUNNBELØPET_2020_FIKK_VIRKNING,
+        )
+
+    private fun lagSøknad(år: Int = 2025) =
         Søknad(
             internDokumentId = InternDokumentId(UUID.randomUUID()),
             søknadId = SøknadId(UUID.randomUUID()),
             pensjonsgivendeInntekter =
                 listOf(
                     PensjonsgivendeInntekt(
-                        år = 2025,
+                        år = år,
                         erFerdigLignet = true,
                         lønnsinntekt = 0,
                         lønnsinntektBarePensjonsdel = 0,
@@ -413,5 +509,10 @@ internal class SykepengegrunnlagTest {
         val SKJÆRINGSTIDSPUNKT: LocalDate = LocalDate.of(2026, 1, 1)
         val SKJØNNSFASTSETTELSE_ID = SkjønnsfastsettelseId(UUID.randomUUID())
         val OVERSTYRING_ID = OverstyringId(UUID.randomUUID())
+
+        /** Grunnbeløpet for 2020 gjaldt fra 1. mai, men fikk virkning fra 21. september. Før det ble grunnlag fastsatt med grunnbeløpet for 2019. */
+        val SKJÆRINGSTIDSPUNKT_2020: LocalDate = LocalDate.of(2020, 6, 1)
+        val FØR_GRUNNBELØPET_2020_FIKK_VIRKNING: Instant = Instant.parse("2020-06-01T10:00:00Z")
+        val NÅ: Instant = Instant.parse("2026-11-27T10:00:00Z")
     }
 }
